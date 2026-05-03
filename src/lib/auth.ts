@@ -1,17 +1,15 @@
-// Session helpers: anonymous Supabase auth + PIN unlock.
+// Two-layer auth:
 //
-// Flow on first launch:
-//   1. signInAnonymously() — gives the client a stable user_id under RLS.
-//   2. user picks a PIN (>= 4 digits).
-//   3. we generate a salt, derive a key from PIN+salt, encrypt a known
-//      plaintext as a "verifier", and persist {salt, verifier} on Supabase
-//      (table user_settings).
+// 1. Email + password (Supabase managed) — identifies WHICH account is in use.
+//    Lets the same account work across devices/browsers.
+// 2. PIN (per-device) — derives the AES-GCM key used to decrypt photos.
+//    Never sent to the server; only its salt + a verifier ciphertext are stored.
 //
-// Flow on subsequent launches:
-//   1. session is restored from localStorage by supabase-js.
-//   2. lock screen asks for PIN.
-//   3. we re-derive the key from PIN + the stored salt and check the verifier.
-//      If it matches, we keep the CryptoKey in memory for the session.
+// On first signup: user picks email/password, then picks a PIN. Salt+verifier
+// land in user_settings. On a NEW device: user logs in with email/password,
+// retrieves the salt from user_settings, types the same PIN to derive the
+// same key. Different PINs across devices are theoretically possible if you
+// re-key, but in practice you'll use the same one.
 
 import { supabase, type UserSettingsRow } from './supabase'
 import {
@@ -31,13 +29,40 @@ export function lockSession() {
   cachedKey = null
 }
 
-export async function ensureAnonSession() {
+/* ---- session helpers ---- */
+
+export async function hasSession(): Promise<boolean> {
   const { data: { session } } = await supabase.auth.getSession()
-  if (session) return session
-  const { data, error } = await supabase.auth.signInAnonymously()
+  return session !== null
+}
+
+export async function getCurrentUserEmail(): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser()
+  return user?.email ?? null
+}
+
+/* ---- email / password ---- */
+
+export async function signUpWithEmail(email: string, password: string) {
+  const { data, error } = await supabase.auth.signUp({ email, password })
+  if (error) throw error
+  // If "Confirm email" is on in Supabase, no session is returned and the user
+  // must click a link in their email before they can log in.
+  return { session: data.session, needsEmailConfirm: data.session === null }
+}
+
+export async function signInWithEmail(email: string, password: string) {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
   if (error) throw error
   return data.session
 }
+
+export async function signOut() {
+  cachedKey = null
+  await supabase.auth.signOut()
+}
+
+/* ---- PIN setup / unlock (unchanged) ---- */
 
 export async function getUserSettings(): Promise<UserSettingsRow | null> {
   const { data, error } = await supabase
@@ -48,8 +73,8 @@ export async function getUserSettings(): Promise<UserSettingsRow | null> {
   return data
 }
 
-/** Returns true on first launch (no PIN set yet). */
-export async function isFirstLaunch(): Promise<boolean> {
+/** True if this account has never set up a PIN yet. */
+export async function isPinSetupNeeded(): Promise<boolean> {
   const settings = await getUserSettings()
   return settings === null
 }
@@ -57,7 +82,7 @@ export async function isFirstLaunch(): Promise<boolean> {
 /** First-time PIN setup. Generates salt, derives key, stores verifier. */
 export async function setupPin(pin: string) {
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('No authenticated user')
+  if (!user) throw new Error('Not authenticated')
 
   const salt = newSalt()
   const key = await deriveKey(pin, salt)
@@ -87,8 +112,6 @@ export async function unlockWithPin(pin: string): Promise<boolean> {
 export async function wipeAccount() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return
-  // Photos rows cascade-delete files only if you remove storage objects too —
-  // we let the photos.ts deletePhoto helper handle storage cleanup individually.
   await supabase.from('photos').delete().eq('user_id', user.id)
   await supabase.from('user_settings').delete().eq('user_id', user.id)
   await supabase.auth.signOut()

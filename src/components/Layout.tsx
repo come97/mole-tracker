@@ -1,28 +1,69 @@
+import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { lockSession } from '../lib/auth'
+import { getCurrentUserEmail, lockSession, signOut } from '../lib/auth'
 
 export default function Layout() {
   const nav = useNavigate()
+  const [email, setEmail] = useState<string | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  useEffect(() => {
+    getCurrentUserEmail().then(setEmail).catch(() => {})
+  }, [])
+
   function lock() {
     lockSession()
     nav('/', { replace: true })
-    // Trigger app-level re-check; simplest: reload.
+    window.location.reload()
+  }
+
+  async function disconnect() {
+    if (!confirm('Te déconnecter ? Tu devras retaper email + mot de passe + PIN pour revenir.')) return
+    await signOut()
     window.location.reload()
   }
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-screen-sm flex-col">
-      <header className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+      <header className="relative flex items-center justify-between px-4 py-3 border-b border-slate-800">
         <Link to="/" className="text-base font-semibold text-slate-100">
           MoleTrack
         </Link>
         <button
-          onClick={lock}
+          onClick={() => setMenuOpen(o => !o)}
           className="rounded-md px-2 py-1 text-xs text-slate-400 hover:bg-slate-800"
-          title="Verrouiller"
+          aria-label="Menu compte"
         >
-          🔒 Verrouiller
+          ⋯
         </button>
+
+        {menuOpen && (
+          <>
+            <div
+              onClick={() => setMenuOpen(false)}
+              className="fixed inset-0 z-20"
+            />
+            <div className="absolute right-3 top-12 z-30 w-60 overflow-hidden rounded-lg border border-slate-700 bg-slate-900 shadow-xl">
+              {email && (
+                <div className="border-b border-slate-800 px-3 py-2 text-xs text-slate-400 truncate">
+                  Connecté · <span className="text-slate-200">{email}</span>
+                </div>
+              )}
+              <button
+                onClick={() => { setMenuOpen(false); lock() }}
+                className="block w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-800"
+              >
+                🔒 Verrouiller
+              </button>
+              <button
+                onClick={() => { setMenuOpen(false); void disconnect() }}
+                className="block w-full px-3 py-2 text-left text-sm text-rose-300 hover:bg-slate-800"
+              >
+                ↗ Se déconnecter
+              </button>
+            </div>
+          </>
+        )}
       </header>
 
       <main className="flex-1 overflow-x-hidden pb-20">

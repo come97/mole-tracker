@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import LockScreen from './components/LockScreen'
+import AuthScreen from './components/AuthScreen'
 import Layout from './components/Layout'
 import HomePage from './pages/Home'
 import AddPage from './pages/Add'
@@ -9,15 +10,16 @@ import AllPhotosPage from './pages/AllPhotos'
 import ComparePage from './pages/Compare'
 import PhotoDetailPage from './pages/PhotoDetail'
 import {
-  ensureAnonSession,
-  isFirstLaunch,
+  hasSession,
+  isPinSetupNeeded,
   setupPin,
   unlockWithPin,
 } from './lib/auth'
 
 type AppState =
   | { kind: 'loading' }
-  | { kind: 'setup' }
+  | { kind: 'unauthed' }
+  | { kind: 'setup-pin' }
   | { kind: 'locked'; error?: string | null }
   | { kind: 'unlocked' }
 
@@ -25,31 +27,47 @@ export default function App() {
   const [state, setState] = useState<AppState>({ kind: 'loading' })
   const [busy, setBusy] = useState(false)
 
-  // Bootstrap: anonymous session + first-launch detection.
+  // Bootstrap: do we have a Supabase session? has the user set a PIN already?
   useEffect(() => {
     let cancelled = false
     async function boot() {
       try {
-        await ensureAnonSession()
+        const authed = await hasSession()
         if (cancelled) return
-        const first = await isFirstLaunch()
+        if (!authed) {
+          setState({ kind: 'unauthed' })
+          return
+        }
+        const needSetup = await isPinSetupNeeded()
         if (cancelled) return
-        setState(first ? { kind: 'setup' } : { kind: 'locked' })
+        setState(needSetup ? { kind: 'setup-pin' } : { kind: 'locked' })
       } catch (e) {
         if (cancelled) return
         console.error('Bootstrap failed', e)
-        setState({ kind: 'locked', error: e instanceof Error ? e.message : 'Erreur inconnue' })
+        setState({ kind: 'unauthed' })
       }
     }
     void boot()
     return () => { cancelled = true }
   }, [])
 
-
   if (state.kind === 'loading') {
     return <FullCenter>Chargement…</FullCenter>
   }
-  if (state.kind === 'setup') {
+
+  if (state.kind === 'unauthed') {
+    return (
+      <AuthScreen
+        onAuthed={async () => {
+          setState({ kind: 'loading' })
+          const needSetup = await isPinSetupNeeded()
+          setState(needSetup ? { kind: 'setup-pin' } : { kind: 'locked' })
+        }}
+      />
+    )
+  }
+
+  if (state.kind === 'setup-pin') {
     return (
       <LockScreen
         mode="setup"
@@ -60,7 +78,6 @@ export default function App() {
             await setupPin(pin)
             setState({ kind: 'unlocked' })
           } catch (e) {
-            setState({ kind: 'setup' })
             alert(`Erreur création du code : ${e instanceof Error ? e.message : e}`)
           } finally {
             setBusy(false)
@@ -69,6 +86,7 @@ export default function App() {
       />
     )
   }
+
   if (state.kind === 'locked') {
     return (
       <LockScreen
