@@ -1,0 +1,27 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-bg: #0b1220;
+  --color-panel: #131c2e;
+  --color-accent: #6366f1;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: var(--color-bg);
+  color: #e2e8f0;
+  -webkit-tap-highlight-color: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+input, button, textarea {
+  font-family: inherit;
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+button { cursor: pointer; }
