@@ -120,6 +120,12 @@ function humanize(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
   if (msg.includes('Invalid login credentials')) return 'Email ou mot de passe incorrect.'
   if (msg.includes('User already registered')) return 'Un compte existe déjà avec cet email. Connecte-toi.'
+  // Trigger whitelist côté DB. Supabase enrobe parfois l'exception Postgres en
+  // "Database error saving new user" — sur cette app c'est presque toujours le
+  // garde-fou whitelist qui parle.
+  if (msg.includes("n'est pas autorisée") || msg.includes('Database error saving new user')) {
+    return "Cette adresse email n'est pas autorisée à créer un compte. Contacte l'administrateur pour être ajouté."
+  }
   if (msg.toLowerCase().includes('password')) return msg
   if (msg.includes('rate limit')) return 'Trop de tentatives. Réessaie dans quelques minutes.'
   return msg

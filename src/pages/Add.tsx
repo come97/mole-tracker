@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import CameraCapture from '../components/CameraCapture'
 import { BODY_ZONES, zoneLabel } from '../lib/bodyZones'
 import { savePhoto } from '../lib/photos'
+import { importQueue } from '../lib/importQueue'
 
 export default function AddPage() {
   const [params] = useSearchParams()
@@ -59,10 +60,18 @@ export default function AddPage() {
             ref={fileInputRef}
             type="file"
             accept="image/*"
+            multiple
             className="hidden"
             onChange={e => {
-              const f = e.target.files?.[0]
-              if (f) setFile(f)
+              const files = e.target.files
+              if (!files || files.length === 0) return
+              // Always go through the import queue for picker-imported files,
+              // even a single one — the dispatch UI is more flexible than the
+              // single-photo form (multi-select + body picker).
+              importQueue.add(files)
+              // Reset the input so re-picking the same file later still fires onChange.
+              e.target.value = ''
+              nav('/import')
             }}
           />
         </div>

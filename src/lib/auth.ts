@@ -16,10 +16,49 @@ import {
   buildVerifier,
   checkVerifier,
   deriveKey,
+  exportKeyRaw,
+  importKeyRaw,
   newSalt,
 } from './crypto'
 
 let cachedKey: CryptoKey | null = null
+
+// sessionStorage survives page refresh but is wiped when the tab/browser is
+// closed — exactly the UX we want: refresh ≠ re-PIN, but full close = re-PIN.
+const SESSION_KEY_STORAGE = 'moletrack:session-key:v1'
+
+async function persistKey(key: CryptoKey): Promise<void> {
+  try {
+    const raw = await exportKeyRaw(key)
+    sessionStorage.setItem(SESSION_KEY_STORAGE, raw)
+  } catch (e) {
+    // Persisting is a UX optimization, not a correctness requirement.
+    console.warn('Failed to persist session key:', e)
+  }
+}
+
+function clearPersistedKey(): void {
+  try {
+    sessionStorage.removeItem(SESSION_KEY_STORAGE)
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Try to restore the AES key from sessionStorage. Returns true on success. */
+export async function restoreSessionFromStorage(): Promise<boolean> {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY_STORAGE)
+    if (!raw) return false
+    cachedKey = await importKeyRaw(raw)
+    return true
+  } catch (e) {
+    console.warn('Failed to restore session key, will ask for PIN:', e)
+    clearPersistedKey()
+    cachedKey = null
+    return false
+  }
+}
 
 export function getKey(): CryptoKey | null {
   return cachedKey
@@ -27,6 +66,7 @@ export function getKey(): CryptoKey | null {
 
 export function lockSession() {
   cachedKey = null
+  clearPersistedKey()
 }
 
 /* ---- session helpers ---- */
@@ -59,6 +99,7 @@ export async function signInWithEmail(email: string, password: string) {
 
 export async function signOut() {
   cachedKey = null
+  clearPersistedKey()
   await supabase.auth.signOut()
 }
 
@@ -96,6 +137,7 @@ export async function setupPin(pin: string) {
   })
   if (error) throw error
   cachedKey = key
+  await persistKey(key)
 }
 
 /** Returns true if PIN is correct, false otherwise. Caches the key on success. */
@@ -104,7 +146,10 @@ export async function unlockWithPin(pin: string): Promise<boolean> {
   if (!settings) return false
   const key = await deriveKey(pin, settings.salt)
   const ok = await checkVerifier(key, settings.pin_verifier_iv, settings.pin_verifier_ct)
-  if (ok) cachedKey = key
+  if (ok) {
+    cachedKey = key
+    await persistKey(key)
+  }
   return ok
 }
 
@@ -116,4 +161,5 @@ export async function wipeAccount() {
   await supabase.from('user_settings').delete().eq('user_id', user.id)
   await supabase.auth.signOut()
   cachedKey = null
+  clearPersistedKey()
 }

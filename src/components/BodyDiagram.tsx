@@ -21,7 +21,7 @@ export default function BodyDiagram({ counts, onZoneClick }: Props) {
       <div className="rounded-2xl bg-slate-900/60 p-3">
         <svg
           viewBox="0 0 220 460"
-          className="mx-auto h-[60vh] max-h-[560px] w-auto"
+          className="mx-auto h-[78vh] max-h-[760px] w-auto"
           style={{ touchAction: 'manipulation' }}
         >
           {view === 'front' ? <FrontBody counts={counts} onClick={onZoneClick} /> : <BackBody counts={counts} onClick={onZoneClick} />}

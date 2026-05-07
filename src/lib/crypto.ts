@@ -57,7 +57,29 @@ export async function deriveKey(pin: string, saltB64: string): Promise<CryptoKey
     },
     baseKey,
     { name: 'AES-GCM', length: 256 },
-    false,
+    // extractable: true so we can persist the derived key in sessionStorage and
+    // skip the PIN prompt on page refresh (sessionStorage is wiped when the tab
+    // is closed, so a fresh open still asks for the PIN). The PIN itself never
+    // leaves the device — only the AES key derived from it.
+    true,
+    ['encrypt', 'decrypt']
+  )
+}
+
+/* ----- raw export / import (used by sessionStorage cache) ----- */
+
+export async function exportKeyRaw(key: CryptoKey): Promise<string> {
+  const raw = await crypto.subtle.exportKey('raw', key)
+  return bytesToBase64(new Uint8Array(raw))
+}
+
+export async function importKeyRaw(rawB64: string): Promise<CryptoKey> {
+  const bytes = base64ToBytes(rawB64)
+  return crypto.subtle.importKey(
+    'raw',
+    bytes as BufferSource,
+    { name: 'AES-GCM', length: 256 },
+    true,
     ['encrypt', 'decrypt']
   )
 }

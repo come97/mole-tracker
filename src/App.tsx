@@ -5,6 +5,7 @@ import AuthScreen from './components/AuthScreen'
 import Layout from './components/Layout'
 import HomePage from './pages/Home'
 import AddPage from './pages/Add'
+import ImportPage from './pages/Import'
 import ZonePage from './pages/Zone'
 import AllPhotosPage from './pages/AllPhotos'
 import ComparePage from './pages/Compare'
@@ -12,6 +13,7 @@ import PhotoDetailPage from './pages/PhotoDetail'
 import {
   hasSession,
   isPinSetupNeeded,
+  restoreSessionFromStorage,
   setupPin,
   unlockWithPin,
 } from './lib/auth'
@@ -40,7 +42,15 @@ export default function App() {
         }
         const needSetup = await isPinSetupNeeded()
         if (cancelled) return
-        setState(needSetup ? { kind: 'setup-pin' } : { kind: 'locked' })
+        if (needSetup) {
+          setState({ kind: 'setup-pin' })
+          return
+        }
+        // Try to restore the AES key from sessionStorage (persists across page
+        // refreshes within the same tab; cleared when the tab/browser closes).
+        const restored = await restoreSessionFromStorage()
+        if (cancelled) return
+        setState(restored ? { kind: 'unlocked' } : { kind: 'locked' })
       } catch (e) {
         if (cancelled) return
         console.error('Bootstrap failed', e)
@@ -116,6 +126,7 @@ export default function App() {
           <Route index element={<HomePage />} />
           <Route path="all" element={<AllPhotosPage />} />
           <Route path="add" element={<AddPage />} />
+          <Route path="import" element={<ImportPage />} />
           <Route path="zone/:zone" element={<ZonePage />} />
           <Route path="photo/:id" element={<PhotoDetailPage />} />
           <Route path="compare" element={<ComparePage />} />
