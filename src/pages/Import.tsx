@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useNavigate } from 'react-router-dom'
 import BodyDiagram from '../components/BodyDiagram'
 import { importQueue, type ImportItem } from '../lib/importQueue'
@@ -23,11 +23,16 @@ export default function ImportPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   // Optional note applied to the whole batch on dispatch.
   const [note, setNote] = useState('')
+  // Optional date (YYYY-MM-DD) applied to the whole batch on dispatch.
+  // Empty = use the current time when savePhoto runs (per-photo).
+  const [batchDate, setBatchDate] = useState('')
   // Upload progress while a dispatch is running.
   const [busy, setBusy] = useState<{ done: number; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Last dispatch result, shown briefly so the user sees what happened.
   const [lastDispatch, setLastDispatch] = useState<{ count: number; zone: string } | null>(null)
+  // Picker is async (encrypt + IDB write per file). Keep the UI honest.
+  const [adding, setAdding] = useState(false)
 
   // Auto-select newly added items so a second-batch import doesn't lose context.
   useEffect(() => {
@@ -42,20 +47,6 @@ export default function ImportPage() {
       return next
     })
   }, [queue])
-
-  // Generate object URLs once per file; revoke when item leaves the queue.
-  const previewMap = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const item of queue) {
-      map.set(item.id, URL.createObjectURL(item.file))
-    }
-    return map
-  }, [queue])
-  useEffect(() => {
-    return () => {
-      for (const url of previewMap.values()) URL.revokeObjectURL(url)
-    }
-  }, [previewMap])
 
   function toggle(id: string) {
     setSelected(prev => {
@@ -73,6 +64,28 @@ export default function ImportPage() {
     setSelected(new Set())
   }
 
+  async function handlePick(files: FileList | null) {
+    if (!files || files.length === 0) return
+    setAdding(true)
+    setError(null)
+    try {
+      await importQueue.add(files)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  // Convert YYYY-MM-DD into a Date at noon local time so timezone shifts don't
+  // accidentally bump the day backwards or forwards.
+  function parseBatchDate(value: string): Date | undefined {
+    if (!value) return undefined
+    const [y, m, d] = value.split('-').map(Number)
+    if (!y || !m || !d) return undefined
+    return new Date(y, m - 1, d, 12, 0, 0, 0)
+  }
+
   async function dispatchTo(zoneId: string) {
     if (busy) return
     if (selected.size === 0) {
@@ -85,16 +98,19 @@ export default function ImportPage() {
     const ids = [...selected]
     const items = queue.filter(i => ids.includes(i.id))
     setBusy({ done: 0, total: items.length })
+    const takenAt = parseBatchDate(batchDate)
 
     const succeededIds: string[] = []
     try {
       for (let i = 0; i < items.length; i++) {
         const item = items[i]
+        const file = await importQueue.getDecryptedFile(item.id)
         await savePhoto({
-          file: item.file,
+          file,
           bodyZone: zoneId,
           bodyZoneLabel: zoneLabel(zoneId),
           note: note.trim() || undefined,
+          takenAt,
         })
         succeededIds.push(item.id)
         setBusy({ done: i + 1, total: items.length })
@@ -105,18 +121,10 @@ export default function ImportPage() {
     } finally {
       // Always remove the photos that did upload, even if a later one failed —
       // the user can retry on the rest.
-      if (succeededIds.length > 0) importQueue.removeMany(succeededIds)
+      if (succeededIds.length > 0) await importQueue.removeMany(succeededIds)
       setBusy(null)
     }
   }
-
-  // Auto-redirect once the queue is empty after a successful dispatch.
-  useEffect(() => {
-    if (queue.length === 0 && lastDispatch) {
-      const t = setTimeout(() => nav(`/zone/${lastDispatch.zone}`, { replace: true }), 600)
-      return () => clearTimeout(t)
-    }
-  }, [queue.length, lastDispatch, nav])
 
   // Empty state — no photos in queue and no recent dispatch.
   if (queue.length === 0 && !lastDispatch) {
@@ -124,14 +132,19 @@ export default function ImportPage() {
       <div className="px-4 py-6">
         <h2 className="text-lg font-semibold text-slate-100">Importer & dispatcher</h2>
         <p className="mt-2 text-sm text-slate-400">
-          Sélectionne plusieurs photos depuis ton appareil, puis range-les zone par zone.
+          Sélectionne plusieurs photos depuis ton appareil. Tu pourras les ranger plus tard, elles
+          restent ici, chiffrées, en attendant.
         </p>
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="mt-6 w-full rounded-xl bg-indigo-500 px-4 py-4 font-medium text-white active:bg-indigo-600"
+          disabled={adding}
+          className="mt-6 w-full rounded-xl bg-indigo-500 px-4 py-4 font-medium text-white active:bg-indigo-600 disabled:opacity-60"
         >
-          🖼️ Choisir des photos
+          {adding ? 'Chiffrement local…' : '🖼️ Choisir des photos'}
         </button>
+        {error && (
+          <p className="mt-3 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">{error}</p>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -139,9 +152,7 @@ export default function ImportPage() {
           multiple
           className="hidden"
           onChange={e => {
-            const files = e.target.files
-            if (!files || files.length === 0) return
-            importQueue.add(files)
+            void handlePick(e.target.files)
             e.target.value = ''
           }}
         />
@@ -150,7 +161,7 @@ export default function ImportPage() {
   }
 
   return (
-    <div className="px-3 pt-3">
+    <div className="px-3 pt-3 pb-6">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base font-semibold text-slate-100">
           Dispatcher{' '}
@@ -160,10 +171,10 @@ export default function ImportPage() {
         </h2>
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-200"
-          disabled={!!busy}
+          className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-200 disabled:opacity-60"
+          disabled={!!busy || adding}
         >
-          + Ajouter
+          {adding ? '…' : '+ Ajouter'}
         </button>
         <input
           ref={fileInputRef}
@@ -172,9 +183,7 @@ export default function ImportPage() {
           multiple
           className="hidden"
           onChange={e => {
-            const files = e.target.files
-            if (!files || files.length === 0) return
-            importQueue.add(files)
+            void handlePick(e.target.files)
             e.target.value = ''
           }}
         />
@@ -216,7 +225,7 @@ export default function ImportPage() {
                   }`}
                 >
                   <img
-                    src={previewMap.get(item.id)}
+                    src={item.previewUrl}
                     className="h-full w-full object-cover"
                     alt=""
                   />
@@ -230,18 +239,32 @@ export default function ImportPage() {
             })}
           </div>
 
-          {/* Optional batch note */}
-          <div className="mt-3">
-            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
-              Note pour le lot (optionnelle, chiffrée)
-            </label>
-            <input
-              value={note}
-              onChange={e => setNote(e.target.value)}
-              placeholder="Ex. : suivi mensuel"
-              className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
-              disabled={!!busy}
-            />
+          {/* Batch metadata */}
+          <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
+            <div>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                Note pour le lot (optionnelle, chiffrée)
+              </label>
+              <input
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                placeholder="Ex. : suivi mensuel"
+                className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                disabled={!!busy}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                Date de prise (sinon : aujourd'hui)
+              </label>
+              <input
+                type="date"
+                value={batchDate}
+                onChange={e => setBatchDate(e.target.value)}
+                className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                disabled={!!busy}
+              />
+            </div>
           </div>
         </>
       )}
@@ -257,10 +280,18 @@ export default function ImportPage() {
         <p className="mt-2 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">{error}</p>
       )}
       {lastDispatch && !busy && (
-        <p className="mt-2 rounded-md bg-emerald-900/40 px-3 py-2 text-sm text-emerald-200">
-          ✅ {lastDispatch.count} photo{lastDispatch.count > 1 ? 's' : ''} rangée
-          {lastDispatch.count > 1 ? 's' : ''} dans « {zoneLabel(lastDispatch.zone)} ».
-          {queue.length > 0 ? ' Continue avec le reste.' : ''}
+        <p className="mt-2 rounded-md bg-emerald-900/40 px-3 py-2 text-sm text-emerald-200 flex items-center justify-between gap-3">
+          <span>
+            ✅ {lastDispatch.count} photo{lastDispatch.count > 1 ? 's' : ''} rangée
+            {lastDispatch.count > 1 ? 's' : ''} dans « {zoneLabel(lastDispatch.zone)} ».
+            {queue.length > 0 ? ' Continue avec le reste.' : ''}
+          </span>
+          <button
+            onClick={() => nav(`/zone/${lastDispatch.zone}`)}
+            className="shrink-0 rounded bg-emerald-700/60 px-2 py-1 text-xs text-emerald-50"
+          >
+            Voir la zone
+          </button>
         </p>
       )}
 

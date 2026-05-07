@@ -62,16 +62,23 @@ export default function AddPage() {
             accept="image/*"
             multiple
             className="hidden"
-            onChange={e => {
+            onChange={async e => {
               const files = e.target.files
               if (!files || files.length === 0) return
               // Always go through the import queue for picker-imported files,
               // even a single one — the dispatch UI is more flexible than the
               // single-photo form (multi-select + body picker).
-              importQueue.add(files)
-              // Reset the input so re-picking the same file later still fires onChange.
+              // Reset the input synchronously so re-picking the same file later still fires onChange.
+              const list = files
               e.target.value = ''
+              // Navigate first so the user lands on /import while encryption is happening;
+              // the queue's subscribers update the page as items appear.
               nav('/import')
+              try {
+                await importQueue.add(list)
+              } catch (err) {
+                console.error('Failed to enqueue imports', err)
+              }
             }}
           />
         </div>

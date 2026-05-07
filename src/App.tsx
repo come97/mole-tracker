@@ -17,6 +17,7 @@ import {
   setupPin,
   unlockWithPin,
 } from './lib/auth'
+import { importQueue } from './lib/importQueue'
 
 type AppState =
   | { kind: 'loading' }
@@ -60,6 +61,16 @@ export default function App() {
     void boot()
     return () => { cancelled = true }
   }, [])
+
+  // Hydrate the persistent import queue once the AES key is available.
+  // Resetting on lock prevents leftover preview URLs across sessions.
+  useEffect(() => {
+    if (state.kind === 'unlocked') {
+      void importQueue.hydrate()
+    } else if (state.kind === 'locked' || state.kind === 'unauthed') {
+      importQueue.reset()
+    }
+  }, [state.kind])
 
   if (state.kind === 'loading') {
     return <FullCenter>Chargement…</FullCenter>
