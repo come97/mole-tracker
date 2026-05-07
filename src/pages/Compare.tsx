@@ -4,6 +4,7 @@ import { supabase, type PhotoRow } from '../lib/supabase'
 import { listPhotos } from '../lib/photos'
 import { BODY_ZONES, zoneLabel } from '../lib/bodyZones'
 import PhotoThumb from '../components/PhotoThumb'
+import PhotoViewer from '../components/PhotoViewer'
 
 export default function ComparePage() {
   const [params, setParams] = useSearchParams()
@@ -17,6 +18,7 @@ export default function ComparePage() {
 function ComparePair({ aId, bId }: { aId: string; bId: string }) {
   const [a, setA] = useState<PhotoRow | null>(null)
   const [b, setB] = useState<PhotoRow | null>(null)
+  const [viewerStart, setViewerStart] = useState<number | null>(null)
 
   useEffect(() => {
     supabase.from('photos').select('*').in('id', [aId, bId]).then(({ data }) => {
@@ -53,25 +55,34 @@ function ComparePair({ aId, bId }: { aId: string; bId: string }) {
         )}
       </div>
       <div className="grid grid-cols-2 gap-1 bg-black">
-        <Side photo={a} label="Avant" />
-        <Side photo={b} label="Après" />
+        <Side photo={a} label="Avant" onOpen={() => setViewerStart(0)} />
+        <Side photo={b} label="Après" onOpen={() => setViewerStart(1)} />
       </div>
       <p className="px-4 py-3 text-center text-xs text-slate-500">
-        Ces images sont déchiffrées localement. Elles ne sont jamais lisibles côté serveur.
+        Touche une image pour la voir en grand, zoomer et balayer entre les deux.
       </p>
+      {viewerStart !== null && (
+        <PhotoViewer
+          photos={[a, b]}
+          startIndex={viewerStart}
+          onClose={() => setViewerStart(null)}
+        />
+      )}
     </div>
   )
 }
 
-function Side({ photo, label }: { photo: PhotoRow; label: string }) {
+function Side({
+  photo, label, onOpen,
+}: { photo: PhotoRow; label: string; onOpen: () => void }) {
   return (
-    <div className="relative">
+    <button type="button" onClick={onOpen} className="relative block w-full text-left">
       <PhotoThumb photo={photo} full className="block aspect-[3/4] w-full object-cover" />
       <div className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">{label}</div>
       <div className="absolute right-1 bottom-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
         {new Date(photo.taken_at).toLocaleDateString('fr-FR')}
       </div>
-    </div>
+    </button>
   )
 }
 
