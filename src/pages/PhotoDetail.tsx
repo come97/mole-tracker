@@ -4,6 +4,7 @@ import { supabase, type PhotoRow } from '../lib/supabase'
 import { decryptPhotoNote, deletePhoto, updatePhotoTakenAt, updatePhotoZone } from '../lib/photos'
 import { BODY_ZONES, zoneLabel } from '../lib/bodyZones'
 import PhotoThumb from '../components/PhotoThumb'
+import PhotoViewer from '../components/PhotoViewer'
 
 export default function PhotoDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -17,6 +18,7 @@ export default function PhotoDetailPage() {
   const [editingZone, setEditingZone] = useState(false)
   const [zoneDraft, setZoneDraft] = useState('')
   const [savingZone, setSavingZone] = useState(false)
+  const [viewerOpen, setViewerOpen] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -97,9 +99,17 @@ export default function PhotoDetailPage() {
       <div className="flex items-center gap-2 px-4 py-3">
         <Link to={`/zone/${photo.body_zone}`} className="text-sm text-slate-400">← {zoneLabel(photo.body_zone)}</Link>
       </div>
-      <div className="bg-black">
+      <button
+        type="button"
+        onClick={() => setViewerOpen(true)}
+        className="group relative block w-full bg-black"
+        aria-label="Agrandir la photo"
+      >
         <PhotoThumb photo={photo} full className="mx-auto block max-h-[70vh] w-full object-contain" />
-      </div>
+        <span className="pointer-events-none absolute right-2 top-2 rounded-full bg-black/60 px-2 py-1 text-[11px] text-white opacity-90 transition group-active:scale-95">
+          ⤢ Agrandir
+        </span>
+      </button>
       <div className="px-4 py-3 text-sm space-y-3">
         {!editingDate ? (
           <div className="flex items-center justify-between gap-3">
@@ -205,6 +215,14 @@ export default function PhotoDetailPage() {
           Supprimer cette photo
         </button>
       </div>
+
+      {viewerOpen && (
+        <PhotoViewer
+          photos={[photo]}
+          startIndex={0}
+          onClose={() => setViewerOpen(false)}
+        />
+      )}
     </div>
   )
 }
