@@ -205,9 +205,15 @@ function BackBody({ counts, onClick }: { counts: Record<string, number>; onClick
         <path d="M156 78 Q168 80 170 100 L172 180 Q164 184 160 180 L158 132 Q154 110 150 100 Z" />
         <CountBadge x={178} y={140} count={c('arm-right')} />
       </Zone>
-      {/* Thighs (back) */}
-      <path d="M76 200 Q82 250 82 296 L102 296 Q104 250 104 200 Z" />
-      <path d="M144 200 Q138 250 138 296 L118 296 Q116 250 116 200 Z" />
+      {/* Thighs (back) — same zone ids as the front view */}
+      <Zone id="thigh-left" label="Cuisse gauche" count={c('thigh-left')} onClick={onClick}>
+        <path d="M76 200 Q82 250 82 296 L102 296 Q104 250 104 200 Z" />
+        <CountBadge x={70} y={244} count={c('thigh-left')} />
+      </Zone>
+      <Zone id="thigh-right" label="Cuisse droite" count={c('thigh-right')} onClick={onClick}>
+        <path d="M144 200 Q138 250 138 296 L118 296 Q116 250 116 200 Z" />
+        <CountBadge x={150} y={244} count={c('thigh-right')} />
+      </Zone>
       {/* Calves */}
       <Zone id="calf-left" label="Mollet gauche" count={c('calf-left')} onClick={onClick}>
         <path d="M82 296 L102 296 L100 410 L86 410 Z" />
