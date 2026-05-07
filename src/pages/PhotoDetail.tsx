@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase, type PhotoRow } from '../lib/supabase'
-import { decryptPhotoNote, deletePhoto, updatePhotoTakenAt } from '../lib/photos'
-import { zoneLabel } from '../lib/bodyZones'
+import { decryptPhotoNote, deletePhoto, updatePhotoTakenAt, updatePhotoZone } from '../lib/photos'
+import { BODY_ZONES, zoneLabel } from '../lib/bodyZones'
 import PhotoThumb from '../components/PhotoThumb'
 
 export default function PhotoDetailPage() {
@@ -14,6 +14,9 @@ export default function PhotoDetailPage() {
   const [editingDate, setEditingDate] = useState(false)
   const [dateDraft, setDateDraft] = useState('')
   const [savingDate, setSavingDate] = useState(false)
+  const [editingZone, setEditingZone] = useState(false)
+  const [zoneDraft, setZoneDraft] = useState('')
+  const [savingZone, setSavingZone] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -64,6 +67,31 @@ export default function PhotoDetailPage() {
     }
   }
 
+  function startEditZone() {
+    if (!photo) return
+    setZoneDraft(photo.body_zone)
+    setEditingZone(true)
+    setError(null)
+  }
+
+  async function saveZone() {
+    if (!photo || !zoneDraft || zoneDraft === photo.body_zone) {
+      setEditingZone(false)
+      return
+    }
+    setSavingZone(true)
+    setError(null)
+    try {
+      const updated = await updatePhotoZone(photo.id, zoneDraft, zoneLabel(zoneDraft))
+      setPhoto(updated)
+      setEditingZone(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSavingZone(false)
+    }
+  }
+
   return (
     <div>
       <div className="flex items-center gap-2 px-4 py-3">
@@ -72,7 +100,7 @@ export default function PhotoDetailPage() {
       <div className="bg-black">
         <PhotoThumb photo={photo} full className="mx-auto block max-h-[70vh] w-full object-contain" />
       </div>
-      <div className="px-4 py-3 text-sm">
+      <div className="px-4 py-3 text-sm space-y-3">
         {!editingDate ? (
           <div className="flex items-center justify-between gap-3">
             <p className="text-slate-300">
@@ -80,7 +108,8 @@ export default function PhotoDetailPage() {
             </p>
             <button
               onClick={startEditDate}
-              className="rounded-md bg-slate-800 px-3 py-1 text-xs text-slate-200"
+              disabled={editingZone}
+              className="rounded-md bg-slate-800 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
             >
               Modifier
             </button>
@@ -115,10 +144,58 @@ export default function PhotoDetailPage() {
             </div>
           </div>
         )}
-        {photo.width && photo.height && (
-          <p className="text-slate-500 text-xs mt-2">{photo.width}×{photo.height}px</p>
+
+        {!editingZone ? (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-slate-300">
+              📍 {zoneLabel(photo.body_zone)}
+            </p>
+            <button
+              onClick={startEditZone}
+              disabled={editingDate}
+              className="rounded-md bg-slate-800 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
+            >
+              Déplacer
+            </button>
+          </div>
+        ) : (
+          <div>
+            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
+              Zone du corps
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={zoneDraft}
+                onChange={e => setZoneDraft(e.target.value)}
+                className="flex-1 min-w-[160px] rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                disabled={savingZone}
+              >
+                {BODY_ZONES.map(z => (
+                  <option key={z.id} value={z.id}>{z.label}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => void saveZone()}
+                disabled={!zoneDraft || savingZone}
+                className="rounded-md bg-indigo-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+              >
+                {savingZone ? 'Déplacement…' : 'Enregistrer'}
+              </button>
+              <button
+                onClick={() => setEditingZone(false)}
+                disabled={savingZone}
+                className="rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-200"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
         )}
-        {note && <p className="mt-3 whitespace-pre-wrap text-slate-200">{note}</p>}
+
+        {photo.width && photo.height && (
+          <p className="text-slate-500 text-xs">{photo.width}×{photo.height}px</p>
+        )}
+        {note && <p className="whitespace-pre-wrap text-slate-200">{note}</p>}
       </div>
       <div className="px-4 pb-6">
         <button
