@@ -13,8 +13,9 @@
 //   plaintext bytes before re-uploading via savePhoto().
 // - removeMany(ids): drops from IDB + memory + revokes preview URLs.
 
-import { encryptBytes, decryptBytes } from './crypto'
+import { encryptBytes, decryptBytes, sha256Hex } from './crypto'
 import { getKey } from './auth'
+import { listAllContentHashes } from './photos'
 import {
   deletePending,
   listPending,
@@ -28,8 +29,14 @@ export type ImportItem = {
   filename: string
   mimeType: string
   size: number
+  contentHash: string
   previewUrl: string
   createdAt: number
+}
+
+export type AddResult = {
+  added: ImportItem[]
+  skippedDuplicates: number
 }
 
 let items: ImportItem[] = []
@@ -55,6 +62,7 @@ async function recordToItem(rec: PendingRecord, key: CryptoKey): Promise<ImportI
     filename: rec.filename,
     mimeType: rec.mimeType,
     size: rec.size,
+    contentHash: rec.contentHash,
     previewUrl: URL.createObjectURL(blob),
     createdAt: rec.createdAt,
   }
@@ -82,14 +90,47 @@ export const importQueue = {
     notify()
   },
 
-  /** Encrypt + persist + show. Ignores non-image files silently. */
-  async add(files: File[] | FileList): Promise<ImportItem[]> {
+  /**
+   * Encrypt + persist + show. Skips files whose content hash matches:
+   * - another file in the same picker batch
+   * - a file already waiting in the queue
+   * - a photo already dispatched to Supabase
+   *
+   * Non-image files are also ignored. Returns counts so the UI can surface
+   * "N ajoutées, M doublons ignorés".
+   */
+  async add(files: File[] | FileList): Promise<AddResult> {
     const key = ensureKey()
     const arr = Array.from(files).filter(f => f.type.startsWith('image/'))
+
+    // Snapshot of hashes we already know about. listAllContentHashes is one
+    // small query; cheaper than per-file existence checks.
+    const remoteHashes = await listAllContentHashes().catch(err => {
+      // If the column doesn't exist yet (migration not run) or the network is
+      // down, fall back to local-only dedup so the UX still works.
+      console.warn('Could not load remote content hashes, dedup is local-only:', err)
+      return new Set<string>()
+    })
+    const queueHashes = new Set(items.map(i => i.contentHash))
+    const seenInBatch = new Set<string>()
+
     const added: ImportItem[] = []
+    let skippedDuplicates = 0
+
     for (const file of arr) {
-      const id = crypto.randomUUID()
       const bytes = new Uint8Array(await file.arrayBuffer())
+      const contentHash = await sha256Hex(bytes)
+      if (
+        seenInBatch.has(contentHash) ||
+        queueHashes.has(contentHash) ||
+        remoteHashes.has(contentHash)
+      ) {
+        skippedDuplicates++
+        continue
+      }
+      seenInBatch.add(contentHash)
+
+      const id = crypto.randomUUID()
       const { iv, ciphertext } = await encryptBytes(key, bytes)
       const rec: PendingRecord = {
         id,
@@ -98,6 +139,7 @@ export const importQueue = {
         size: file.size,
         iv,
         ciphertext,
+        contentHash,
         createdAt: Date.now(),
       }
       await putPending(rec)
@@ -109,6 +151,7 @@ export const importQueue = {
         filename: rec.filename,
         mimeType: rec.mimeType,
         size: rec.size,
+        contentHash,
         previewUrl,
         createdAt: rec.createdAt,
       }
@@ -117,16 +160,19 @@ export const importQueue = {
       items = [...items, item]
       notify()
     }
-    return added
+    return { added, skippedDuplicates }
   },
 
-  /** Recover the original file bytes from IDB at dispatch time. */
-  async getDecryptedFile(id: string): Promise<File> {
+  /** Recover the original file bytes (and known hash) from IDB at dispatch time. */
+  async getDecryptedFile(id: string): Promise<{ file: File; contentHash: string }> {
     const key = ensureKey()
     const rec = await getPending(id)
     if (!rec) throw new Error(`Pending photo ${id} not found`)
     const pt = await decryptBytes(key, rec.iv, rec.ciphertext)
-    return new File([pt as BlobPart], rec.filename, { type: rec.mimeType })
+    return {
+      file: new File([pt as BlobPart], rec.filename, { type: rec.mimeType }),
+      contentHash: rec.contentHash,
+    }
   },
 
   async removeMany(ids: string[]): Promise<void> {

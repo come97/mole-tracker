@@ -21,6 +21,22 @@ export function base64ToBytes(b64: string): Uint8Array {
   return out
 }
 
+/* ----- content hash (for dedup) -----
+ * SHA-256 of the raw plaintext. Used to detect identical files at import time.
+ * The server stores this hash in clear so dedup queries don't need decryption;
+ * since the hash is one-way, it doesn't expose photo contents — at most it
+ * reveals "user X has the same byte-identical file as user Y", which is
+ * irrelevant in our single-user model.
+ */
+export async function sha256Hex(bytes: ArrayBuffer | Uint8Array): Promise<string> {
+  const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+  const digest = await crypto.subtle.digest('SHA-256', buf as BufferSource)
+  const view = new Uint8Array(digest)
+  let out = ''
+  for (let i = 0; i < view.length; i++) out += view[i].toString(16).padStart(2, '0')
+  return out
+}
+
 /* ----- random ----- */
 
 export function randomBytes(n: number): Uint8Array {

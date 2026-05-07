@@ -19,6 +19,7 @@ export type PendingRecord = {
   size: number
   iv: string          // base64 — IV used for `ciphertext`
   ciphertext: Uint8Array
+  contentHash: string // sha256 hex of the plaintext — used for dedup at import time
   createdAt: number   // ms epoch — when added to the queue
 }
 

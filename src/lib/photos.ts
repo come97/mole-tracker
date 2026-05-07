@@ -7,7 +7,7 @@
 // We always revoke object URLs the caller no longer needs (photo cards do this on unmount).
 
 import { supabase, type PhotoRow } from './supabase'
-import { encryptBytes, decryptBytes, encryptText, decryptText } from './crypto'
+import { encryptBytes, decryptBytes, encryptText, decryptText, sha256Hex } from './crypto'
 import { getKey } from './auth'
 
 const BUCKET = 'mole-photos'
@@ -66,11 +66,18 @@ export type SavePhotoInput = {
   bodyZoneLabel?: string
   takenAt?: Date
   note?: string
+  /** Pre-computed sha256 of the original file (skips a re-hash). */
+  contentHash?: string
 }
 
 export async function savePhoto(input: SavePhotoInput): Promise<PhotoRow> {
   const key = ensureKey()
   const userId = await ensureUserId()
+
+  // Hash the original bytes for server-side dedup. If the caller already has
+  // it (the import queue does), skip the work.
+  const contentHash =
+    input.contentHash ?? (await sha256Hex(new Uint8Array(await input.file.arrayBuffer())))
 
   const bitmap = await fileToBitmap(input.file)
   // Full image — capped at 2048 px largest side.
@@ -129,6 +136,7 @@ export async function savePhoto(input: SavePhotoInput): Promise<PhotoRow> {
       encrypted_size_bytes: fullCt.byteLength,
       width: w,
       height: h,
+      content_hash: contentHash,
       taken_at: (input.takenAt ?? new Date()).toISOString(),
       note_iv,
       note_ct,
@@ -148,6 +156,18 @@ export async function listPhotos(opts: { zone?: string } = {}): Promise<PhotoRow
   const { data, error } = await q
   if (error) throw error
   return (data ?? []) as PhotoRow[]
+}
+
+/** Pulls every dispatched photo's content hash so the import flow can dedup. */
+export async function listAllContentHashes(): Promise<Set<string>> {
+  const { data, error } = await supabase.from('photos').select('content_hash')
+  if (error) throw error
+  const out = new Set<string>()
+  for (const r of data ?? []) {
+    const h = (r as { content_hash: string | null }).content_hash
+    if (h) out.add(h)
+  }
+  return out
 }
 
 export async function listZoneCounts(): Promise<Record<string, number>> {

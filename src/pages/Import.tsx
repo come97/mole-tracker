@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import BodyDiagram from '../components/BodyDiagram'
 import { importQueue, type ImportItem } from '../lib/importQueue'
 import { savePhoto } from '../lib/photos'
@@ -17,6 +17,7 @@ function useImportQueue(): ImportItem[] {
 export default function ImportPage() {
   const queue = useImportQueue()
   const nav = useNavigate()
+  const location = useLocation()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   // Selection: which queued items will the next zone-click dispatch.
@@ -33,6 +34,19 @@ export default function ImportPage() {
   const [lastDispatch, setLastDispatch] = useState<{ count: number; zone: string } | null>(null)
   // Picker is async (encrypt + IDB write per file). Keep the UI honest.
   const [adding, setAdding] = useState(false)
+  // Number of duplicate files ignored during the most recent picker batch.
+  const [lastSkipped, setLastSkipped] = useState(0)
+
+  // Pick up a skipped-duplicate count handed off by /add when imports happened
+  // before this page mounted. Clear the location state so a refresh doesn't re-show it.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => {
+    const state = location.state as { skippedDuplicates?: number } | null
+    if (state?.skippedDuplicates && state.skippedDuplicates > 0) {
+      setLastSkipped(state.skippedDuplicates)
+      nav(location.pathname, { replace: true, state: null })
+    }
+  }, [location, nav])
 
   // Auto-select newly added items so a second-batch import doesn't lose context.
   useEffect(() => {
@@ -68,8 +82,10 @@ export default function ImportPage() {
     if (!files || files.length === 0) return
     setAdding(true)
     setError(null)
+    setLastSkipped(0)
     try {
-      await importQueue.add(files)
+      const { skippedDuplicates } = await importQueue.add(files)
+      if (skippedDuplicates > 0) setLastSkipped(skippedDuplicates)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -104,13 +120,14 @@ export default function ImportPage() {
     try {
       for (let i = 0; i < items.length; i++) {
         const item = items[i]
-        const file = await importQueue.getDecryptedFile(item.id)
+        const { file, contentHash } = await importQueue.getDecryptedFile(item.id)
         await savePhoto({
           file,
           bodyZone: zoneId,
           bodyZoneLabel: zoneLabel(zoneId),
           note: note.trim() || undefined,
           takenAt,
+          contentHash,
         })
         succeededIds.push(item.id)
         setBusy({ done: i + 1, total: items.length })
@@ -144,6 +161,11 @@ export default function ImportPage() {
         </button>
         {error && (
           <p className="mt-3 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">{error}</p>
+        )}
+        {lastSkipped > 0 && (
+          <p className="mt-3 rounded-md bg-amber-900/30 px-3 py-2 text-sm text-amber-200">
+            {lastSkipped} doublon{lastSkipped > 1 ? 's' : ''} ignoré{lastSkipped > 1 ? 's' : ''} (déjà en file ou déjà rangée{lastSkipped > 1 ? 's' : ''}).
+          </p>
         )}
         <input
           ref={fileInputRef}
@@ -278,6 +300,11 @@ export default function ImportPage() {
 
       {error && (
         <p className="mt-2 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">{error}</p>
+      )}
+      {lastSkipped > 0 && (
+        <p className="mt-2 rounded-md bg-amber-900/30 px-3 py-2 text-sm text-amber-200">
+          {lastSkipped} doublon{lastSkipped > 1 ? 's' : ''} ignoré{lastSkipped > 1 ? 's' : ''} (déjà en file ou déjà rangée{lastSkipped > 1 ? 's' : ''}).
+        </p>
       )}
       {lastDispatch && !busy && (
         <p className="mt-2 rounded-md bg-emerald-900/40 px-3 py-2 text-sm text-emerald-200 flex items-center justify-between gap-3">

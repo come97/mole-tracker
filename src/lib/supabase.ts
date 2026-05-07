@@ -27,6 +27,7 @@ export type PhotoRow = {
   encrypted_size_bytes: number | null
   width: number | null
   height: number | null
+  content_hash: string | null
   note_ct: string | null
   note_iv: string | null
   taken_at: string
