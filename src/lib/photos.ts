@@ -208,6 +208,17 @@ export async function decryptPhotoNote(photo: PhotoRow): Promise<string | null> 
   return decryptText(key, photo.note_iv, photo.note_ct)
 }
 
+export async function updatePhotoTakenAt(photoId: string, takenAt: Date): Promise<PhotoRow> {
+  const { data, error } = await supabase
+    .from('photos')
+    .update({ taken_at: takenAt.toISOString() })
+    .eq('id', photoId)
+    .select()
+    .single()
+  if (error) throw error
+  return data as PhotoRow
+}
+
 export async function deletePhoto(photo: PhotoRow) {
   const paths = [photo.encrypted_path]
   if (photo.thumbnail_path) paths.push(photo.thumbnail_path)
