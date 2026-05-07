@@ -44,7 +44,10 @@ export const importQueue = {
   },
 
   list(): ImportItem[] {
-    return items.slice()
+    // Return the stable reference — mutations always replace `items` with a
+    // new array, so callers can safely treat this as immutable. Returning a
+    // fresh slice here breaks useSyncExternalStore (infinite re-renders).
+    return items
   },
 
   size(): number {
