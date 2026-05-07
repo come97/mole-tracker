@@ -36,6 +36,8 @@ export default function ImportPage() {
   const [adding, setAdding] = useState(false)
   // Number of duplicate files ignored during the most recent picker batch.
   const [lastSkipped, setLastSkipped] = useState(0)
+  // Number of files that failed to import (unreadable, IDB quota, etc).
+  const [lastFailed, setLastFailed] = useState(0)
 
   // Pick up a skipped-duplicate count handed off by /add when imports happened
   // before this page mounted. Clear the location state so a refresh doesn't re-show it.
@@ -83,9 +85,11 @@ export default function ImportPage() {
     setAdding(true)
     setError(null)
     setLastSkipped(0)
+    setLastFailed(0)
     try {
-      const { skippedDuplicates } = await importQueue.add(files)
+      const { skippedDuplicates, failed } = await importQueue.add(files)
       if (skippedDuplicates > 0) setLastSkipped(skippedDuplicates)
+      if (failed > 0) setLastFailed(failed)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -165,6 +169,11 @@ export default function ImportPage() {
         {lastSkipped > 0 && (
           <p className="mt-3 rounded-md bg-amber-900/30 px-3 py-2 text-sm text-amber-200">
             {lastSkipped} doublon{lastSkipped > 1 ? 's' : ''} ignoré{lastSkipped > 1 ? 's' : ''} (déjà en file ou déjà rangée{lastSkipped > 1 ? 's' : ''}).
+          </p>
+        )}
+        {lastFailed > 0 && (
+          <p className="mt-3 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">
+            {lastFailed} fichier{lastFailed > 1 ? 's' : ''} illisible{lastFailed > 1 ? 's' : ''} (format non supporté ou trop gros). Voir la console pour le détail.
           </p>
         )}
         <input
@@ -304,6 +313,11 @@ export default function ImportPage() {
       {lastSkipped > 0 && (
         <p className="mt-2 rounded-md bg-amber-900/30 px-3 py-2 text-sm text-amber-200">
           {lastSkipped} doublon{lastSkipped > 1 ? 's' : ''} ignoré{lastSkipped > 1 ? 's' : ''} (déjà en file ou déjà rangée{lastSkipped > 1 ? 's' : ''}).
+        </p>
+      )}
+      {lastFailed > 0 && (
+        <p className="mt-2 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">
+          {lastFailed} fichier{lastFailed > 1 ? 's' : ''} illisible{lastFailed > 1 ? 's' : ''} (format non supporté ou trop gros). Voir la console pour le détail.
         </p>
       )}
       {lastDispatch && !busy && (

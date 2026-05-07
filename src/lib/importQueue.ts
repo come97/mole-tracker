@@ -37,6 +37,7 @@ export type ImportItem = {
 export type AddResult = {
   added: ImportItem[]
   skippedDuplicates: number
+  failed: number
 }
 
 let items: ImportItem[] = []
@@ -116,51 +117,62 @@ export const importQueue = {
 
     const added: ImportItem[] = []
     let skippedDuplicates = 0
+    const failures: { name: string; error: unknown }[] = []
 
     for (const file of arr) {
-      const bytes = new Uint8Array(await file.arrayBuffer())
-      const contentHash = await sha256Hex(bytes)
-      if (
-        seenInBatch.has(contentHash) ||
-        queueHashes.has(contentHash) ||
-        remoteHashes.has(contentHash)
-      ) {
-        skippedDuplicates++
-        continue
-      }
-      seenInBatch.add(contentHash)
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer())
+        const contentHash = await sha256Hex(bytes)
+        if (
+          seenInBatch.has(contentHash) ||
+          queueHashes.has(contentHash) ||
+          remoteHashes.has(contentHash)
+        ) {
+          skippedDuplicates++
+          continue
+        }
+        seenInBatch.add(contentHash)
 
-      const id = crypto.randomUUID()
-      const { iv, ciphertext } = await encryptBytes(key, bytes)
-      const rec: PendingRecord = {
-        id,
-        filename: file.name || 'photo.jpg',
-        mimeType: file.type || 'image/jpeg',
-        size: file.size,
-        iv,
-        ciphertext,
-        contentHash,
-        createdAt: Date.now(),
+        const id = crypto.randomUUID()
+        const { iv, ciphertext } = await encryptBytes(key, bytes)
+        const rec: PendingRecord = {
+          id,
+          filename: file.name || 'photo.jpg',
+          mimeType: file.type || 'image/jpeg',
+          size: file.size,
+          iv,
+          ciphertext,
+          contentHash,
+          createdAt: Date.now(),
+        }
+        await putPending(rec)
+        // Build the preview from the plaintext we already have, no need to
+        // round-trip through decrypt.
+        const previewUrl = URL.createObjectURL(new Blob([bytes as BlobPart], { type: rec.mimeType }))
+        const item: ImportItem = {
+          id,
+          filename: rec.filename,
+          mimeType: rec.mimeType,
+          size: rec.size,
+          contentHash,
+          previewUrl,
+          createdAt: rec.createdAt,
+        }
+        added.push(item)
+        // Notify per-file so the UI shows thumbs trickling in for big batches.
+        items = [...items, item]
+        notify()
+      } catch (err) {
+        // Per-file isolation: a single bad file mustn't kill the whole batch.
+        // Common culprits: HEIC the browser can't read, oversized files, IDB quota.
+        console.error(`Failed to enqueue ${file.name}:`, err)
+        failures.push({ name: file.name, error: err })
       }
-      await putPending(rec)
-      // Build the preview from the plaintext we already have, no need to
-      // round-trip through decrypt.
-      const previewUrl = URL.createObjectURL(new Blob([bytes as BlobPart], { type: rec.mimeType }))
-      const item: ImportItem = {
-        id,
-        filename: rec.filename,
-        mimeType: rec.mimeType,
-        size: rec.size,
-        contentHash,
-        previewUrl,
-        createdAt: rec.createdAt,
-      }
-      added.push(item)
-      // Notify per-file so the UI shows thumbs trickling in for big batches.
-      items = [...items, item]
-      notify()
     }
-    return { added, skippedDuplicates }
+    if (failures.length > 0) {
+      console.warn(`${failures.length} file(s) failed to import`, failures)
+    }
+    return { added, skippedDuplicates, failed: failures.length }
   },
 
   /** Recover the original file bytes (and known hash) from IDB at dispatch time. */
