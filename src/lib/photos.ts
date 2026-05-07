@@ -219,6 +219,21 @@ export async function updatePhotoTakenAt(photoId: string, takenAt: Date): Promis
   return data as PhotoRow
 }
 
+export async function updatePhotoZone(
+  photoId: string,
+  bodyZone: string,
+  bodyZoneLabel?: string,
+): Promise<PhotoRow> {
+  const { data, error } = await supabase
+    .from('photos')
+    .update({ body_zone: bodyZone, body_zone_label: bodyZoneLabel ?? null })
+    .eq('id', photoId)
+    .select()
+    .single()
+  if (error) throw error
+  return data as PhotoRow
+}
+
 export async function deletePhoto(photo: PhotoRow) {
   const paths = [photo.encrypted_path]
   if (photo.thumbnail_path) paths.push(photo.thumbnail_path)

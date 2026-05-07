@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { PhotoRow } from '../lib/supabase'
-import { listPhotos, updatePhotoTakenAt } from '../lib/photos'
-import { zoneLabel } from '../lib/bodyZones'
+import { listPhotos, updatePhotoTakenAt, updatePhotoZone } from '../lib/photos'
+import { BODY_ZONES, zoneLabel } from '../lib/bodyZones'
 import PhotoThumb from '../components/PhotoThumb'
+
+type Editing = 'none' | 'date' | 'zone'
 
 export default function AllPhotosPage() {
   const [photos, setPhotos] = useState<PhotoRow[] | null>(null)
   const [selecting, setSelecting] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [editingDate, setEditingDate] = useState(false)
+  const [editing, setEditing] = useState<Editing>('none')
   const [dateDraft, setDateDraft] = useState('')
+  const [zoneDraft, setZoneDraft] = useState('')
   const [saving, setSaving] = useState<{ done: number; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const nav = useNavigate()
@@ -32,8 +35,9 @@ export default function AllPhotosPage() {
   function exitSelection() {
     setSelecting(false)
     setSelected(new Set())
-    setEditingDate(false)
+    setEditing('none')
     setDateDraft('')
+    setZoneDraft('')
     setError(null)
   }
 
@@ -54,7 +58,17 @@ export default function AllPhotosPage() {
     const mm = String(d.getMonth() + 1).padStart(2, '0')
     const dd = String(d.getDate()).padStart(2, '0')
     setDateDraft(`${yyyy}-${mm}-${dd}`)
-    setEditingDate(true)
+    setEditing('date')
+    setError(null)
+  }
+
+  function openZoneEditor() {
+    if (!photos || selected.size === 0) return
+    // Pre-fill with the common zone if all selected share one, else empty.
+    const picked = photos.filter(p => selected.has(p.id))
+    const zones = new Set(picked.map(p => p.body_zone))
+    setZoneDraft(zones.size === 1 ? [...zones][0] : '')
+    setEditing('zone')
     setError(null)
   }
 
@@ -77,6 +91,27 @@ export default function AllPhotosPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       // Refresh anyway so successful updates are visible.
+      void reload()
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  async function applyZone() {
+    if (!zoneDraft || saving) return
+    const ids = [...selected]
+    const label = zoneLabel(zoneDraft)
+    setSaving({ done: 0, total: ids.length })
+    setError(null)
+    try {
+      for (let i = 0; i < ids.length; i++) {
+        await updatePhotoZone(ids[i], zoneDraft, label)
+        setSaving({ done: i + 1, total: ids.length })
+      }
+      await reload()
+      exitSelection()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
       void reload()
     } finally {
       setSaving(null)
@@ -163,22 +198,33 @@ export default function AllPhotosPage() {
             <p className="mb-2 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">{error}</p>
           )}
           <div className="rounded-2xl bg-slate-900/95 p-3 shadow-lg ring-1 ring-slate-700/60 backdrop-blur">
-            {!editingDate ? (
-              <div className="flex items-center gap-2">
+            {editing === 'none' && (
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <p className="flex-1 text-xs text-slate-400">
                   {selected.size === 0
                     ? 'Sélectionne des photos pour les modifier.'
                     : `${selected.size} photo${selected.size > 1 ? 's' : ''} sélectionnée${selected.size > 1 ? 's' : ''}`}
                 </p>
-                <button
-                  onClick={openDateEditor}
-                  disabled={selected.size === 0}
-                  className="rounded-xl bg-indigo-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
-                >
-                  📅 Modifier la date
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={openDateEditor}
+                    disabled={selected.size === 0}
+                    className="flex-1 rounded-xl bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 disabled:opacity-40 sm:flex-none"
+                  >
+                    📅 Date
+                  </button>
+                  <button
+                    onClick={openZoneEditor}
+                    disabled={selected.size === 0}
+                    className="flex-1 rounded-xl bg-indigo-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-40 sm:flex-none"
+                  >
+                    📍 Déplacer
+                  </button>
+                </div>
               </div>
-            ) : (
+            )}
+
+            {editing === 'date' && (
               <div>
                 <p className="mb-2 text-xs text-slate-400">
                   Nouvelle date pour {selected.size} photo{selected.size > 1 ? 's' : ''}
@@ -200,11 +246,47 @@ export default function AllPhotosPage() {
                     {saving ? 'Enregistrement…' : 'Appliquer'}
                   </button>
                   <button
-                    onClick={() => setEditingDate(false)}
+                    onClick={() => setEditing('none')}
                     disabled={!!saving}
                     className="rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-200"
                   >
-                    Annuler
+                    Retour
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {editing === 'zone' && (
+              <div>
+                <p className="mb-2 text-xs text-slate-400">
+                  Déplacer {selected.size} photo{selected.size > 1 ? 's' : ''} vers…
+                  {saving ? ` · ${saving.done}/${saving.total}` : ''}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={zoneDraft}
+                    onChange={e => setZoneDraft(e.target.value)}
+                    className="flex-1 min-w-[160px] rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                    disabled={!!saving}
+                  >
+                    <option value="">— Choisir une zone —</option>
+                    {BODY_ZONES.map(z => (
+                      <option key={z.id} value={z.id}>{z.label}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => void applyZone()}
+                    disabled={!zoneDraft || !!saving}
+                    className="rounded-md bg-indigo-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+                  >
+                    {saving ? 'Déplacement…' : 'Déplacer'}
+                  </button>
+                  <button
+                    onClick={() => setEditing('none')}
+                    disabled={!!saving}
+                    className="rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-200"
+                  >
+                    Retour
                   </button>
                 </div>
               </div>
