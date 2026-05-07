@@ -175,6 +175,46 @@ export const importQueue = {
     return { added, skippedDuplicates, failed: failures.length }
   },
 
+  /**
+   * Re-inject already-decrypted bytes (e.g. a photo pulled back from a zone
+   * because the user mis-routed it). Skips dedup against remote/local since
+   * the caller is about to delete the original from the server.
+   */
+  async requeueFromBytes(input: {
+    bytes: Uint8Array
+    filename: string
+    mimeType: string
+  }): Promise<ImportItem> {
+    const key = ensureKey()
+    const contentHash = await sha256Hex(input.bytes)
+    const id = crypto.randomUUID()
+    const { iv, ciphertext } = await encryptBytes(key, input.bytes)
+    const rec: PendingRecord = {
+      id,
+      filename: input.filename || 'photo.jpg',
+      mimeType: input.mimeType || 'image/jpeg',
+      size: input.bytes.byteLength,
+      iv,
+      ciphertext,
+      contentHash,
+      createdAt: Date.now(),
+    }
+    await putPending(rec)
+    const previewUrl = URL.createObjectURL(new Blob([input.bytes as BlobPart], { type: rec.mimeType }))
+    const item: ImportItem = {
+      id,
+      filename: rec.filename,
+      mimeType: rec.mimeType,
+      size: rec.size,
+      contentHash,
+      previewUrl,
+      createdAt: rec.createdAt,
+    }
+    items = [...items, item]
+    notify()
+    return item
+  },
+
   /** Recover the original file bytes (and known hash) from IDB at dispatch time. */
   async getDecryptedFile(id: string): Promise<{ file: File; contentHash: string }> {
     const key = ensureKey()

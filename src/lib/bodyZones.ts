@@ -4,7 +4,7 @@
 export type BodyZone = {
   id: string
   label: string
-  side: 'front' | 'back'
+  side: 'front' | 'back' | 'left' | 'right'
 }
 
 export const BODY_ZONES: BodyZone[] = [
@@ -28,6 +28,9 @@ export const BODY_ZONES: BodyZone[] = [
   { id: 'glutes',       label: 'Fessiers',         side: 'back' },
   { id: 'calf-left',    label: 'Mollet gauche',    side: 'back' },
   { id: 'calf-right',   label: 'Mollet droit',     side: 'back' },
+  // Sides
+  { id: 'flank-left',   label: 'Flanc gauche',     side: 'left' },
+  { id: 'flank-right',  label: 'Flanc droit',      side: 'right' },
   // Generic
   { id: 'other',        label: 'Autre',            side: 'front' },
 ]

@@ -178,6 +178,17 @@ export async function listZoneCounts(): Promise<Record<string, number>> {
   return counts
 }
 
+/** Download + decrypt the full image. Returned as raw bytes (not a blob URL). */
+export async function getPhotoBytes(photo: PhotoRow): Promise<Uint8Array> {
+  const key = ensureKey()
+  if (!photo.encrypted_path || !photo.iv) throw new Error('Missing path/iv on photo')
+  const dl = await supabase.storage.from(BUCKET).download(photo.encrypted_path)
+  if (dl.error) throw dl.error
+  const ct = new Uint8Array(await dl.data.arrayBuffer())
+  const pt = await decryptBytes(key, photo.iv, ct)
+  return new Uint8Array(pt)
+}
+
 export async function getPhotoBlobUrl(photo: PhotoRow, which: 'full' | 'thumb' = 'full'): Promise<string> {
   const key = ensureKey()
   const path = which === 'thumb' ? photo.thumbnail_path : photo.encrypted_path

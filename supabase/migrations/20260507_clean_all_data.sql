@@ -1,0 +1,22 @@
+-- Clean all user data: photos (DB rows) + orphaned storage paths.
+-- Run this in the Supabase SQL editor.
+--
+-- WARNING: irreversible. This deletes every row for every user.
+-- Use only in dev/test or when explicitly wiping all accounts.
+--
+-- Step 1: delete photo metadata from the DB.
+delete from public.photos;
+
+-- Step 2: Storage blobs in the `mole-photos` bucket are NOT deleted by the
+-- above SQL — Supabase Storage is separate from Postgres. To wipe them too,
+-- run this in the Supabase Dashboard → Storage → mole-photos → select all → delete,
+-- OR via the API call below (requires service_role key, not anon key):
+--
+--   curl -X DELETE \
+--     'https://<project>.supabase.co/storage/v1/bucket/mole-photos/objects' \
+--     -H 'Authorization: Bearer <service_role_key>' \
+--     -H 'Content-Type: application/json' \
+--     -d '{"prefixes": [""]}'
+--
+-- If you only want to clean one user's data (safer), filter by user_id:
+-- delete from public.photos where user_id = '<your-user-uuid>';

@@ -9,13 +9,15 @@ type Props = {
 // Each <g data-zone> is a clickable region. Hovering / focused = highlight.
 
 export default function BodyDiagram({ counts, onZoneClick }: Props) {
-  const [view, setView] = useState<'front' | 'back'>('front')
+  const [view, setView] = useState<'front' | 'back' | 'left' | 'right'>('front')
 
   return (
     <div className="px-4 pt-4">
-      <div className="mb-3 flex items-center justify-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center justify-center gap-2">
         <ToggleBtn active={view === 'front'} onClick={() => setView('front')}>Face</ToggleBtn>
         <ToggleBtn active={view === 'back'} onClick={() => setView('back')}>Dos</ToggleBtn>
+        <ToggleBtn active={view === 'left'} onClick={() => setView('left')}>Profil G</ToggleBtn>
+        <ToggleBtn active={view === 'right'} onClick={() => setView('right')}>Profil D</ToggleBtn>
       </div>
 
       <div className="rounded-2xl bg-slate-900/60 p-3">
@@ -24,7 +26,10 @@ export default function BodyDiagram({ counts, onZoneClick }: Props) {
           className="mx-auto h-[78vh] max-h-[760px] w-auto"
           style={{ touchAction: 'manipulation' }}
         >
-          {view === 'front' ? <FrontBody counts={counts} onClick={onZoneClick} /> : <BackBody counts={counts} onClick={onZoneClick} />}
+          {view === 'front' && <FrontBody counts={counts} onClick={onZoneClick} />}
+          {view === 'back' && <BackBody counts={counts} onClick={onZoneClick} />}
+          {view === 'left' && <SideBody counts={counts} onClick={onZoneClick} side="left" />}
+          {view === 'right' && <SideBody counts={counts} onClick={onZoneClick} side="right" />}
         </svg>
       </div>
 
@@ -214,6 +219,48 @@ function BackBody({ counts, onClick }: { counts: Record<string, number>; onClick
       </Zone>
       <ellipse cx={93} cy={420} rx={11} ry={6} fill={skinFill} stroke={skinStroke} />
       <ellipse cx={127} cy={420} rx={11} ry={6} fill={skinFill} stroke={skinStroke} />
+    </g>
+  )
+}
+
+/* ---------- Side body (left / right profile) ---------- */
+
+function SideBody({
+  counts, onClick, side,
+}: { counts: Record<string, number>; onClick: (id: string) => void; side: 'left' | 'right' }) {
+  const c = (id: string) => counts[id] ?? 0
+  const flankId = side === 'left' ? 'flank-left' : 'flank-right'
+  const flankLabel = side === 'left' ? 'Flanc gauche' : 'Flanc droit'
+  // Base silhouette faces right; mirror for the left-profile view.
+  const flip = side === 'left'
+  return (
+    <g
+      fill={skinFill}
+      stroke={skinStroke}
+      strokeWidth={1.2}
+      transform={flip ? 'matrix(-1 0 0 1 220 0)' : undefined}
+    >
+      {/* Head (profile) */}
+      <path d="M96 18 Q120 14 128 36 Q132 52 122 60 L116 60 L114 68 L102 68 Q92 60 92 44 Q92 26 96 18 Z" />
+      {/* Neck */}
+      <rect x={104} y={66} width={14} height={10} rx={3} />
+      {/* Torso (profile) */}
+      <path d="M96 76 Q108 72 124 78 L130 132 Q126 138 120 138 L96 138 Q90 130 90 110 Z" />
+      {/* Flank — the side of the trunk between armpit and hip */}
+      <Zone id={flankId} label={flankLabel} count={c(flankId)} onClick={onClick}>
+        <path d="M96 138 Q120 138 130 132 L132 188 Q120 196 96 192 Z" />
+        <g transform={flip ? 'matrix(-1 0 0 1 220 0)' : undefined}>
+          <CountBadge x={flip ? 220 - 150 : 150} y={164} count={c(flankId)} />
+        </g>
+      </Zone>
+      {/* Arm (profile, pinned along the side) */}
+      <path d="M118 80 Q132 88 134 110 L132 180 Q126 184 122 180 L120 132 Q116 110 114 100 Z" />
+      {/* Hip / thigh */}
+      <path d="M94 192 Q120 196 132 192 L128 296 Q108 300 92 296 Z" />
+      {/* Lower leg */}
+      <path d="M96 296 Q120 300 128 296 L122 410 L100 410 Z" />
+      {/* Foot */}
+      <ellipse cx={114} cy={420} rx={18} ry={6} fill={skinFill} stroke={skinStroke} />
     </g>
   )
 }
