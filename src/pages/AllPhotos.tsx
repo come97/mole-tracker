@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import type { PhotoRow } from '../lib/supabase'
-import { listPhotos, updatePhotoTakenAt, updatePhotoZone } from '../lib/photos'
+import {
+  countDuplicateExtras,
+  listPhotos,
+  updatePhotoTakenAt,
+  updatePhotoZone,
+} from '../lib/photos'
 import { BODY_ZONES, zoneLabel } from '../lib/bodyZones'
 import PhotoThumb from '../components/PhotoThumb'
 
@@ -16,10 +21,17 @@ export default function AllPhotosPage() {
   const [zoneDraft, setZoneDraft] = useState('')
   const [saving, setSaving] = useState<{ done: number; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Discreet banner that surfaces the duplicate cleanup tool when there's
+  // something to clean up. We re-fetch alongside the photo list so the count
+  // stays in sync after the user deletes duplicates from /duplicates.
+  const [dupCount, setDupCount] = useState(0)
   const nav = useNavigate()
 
   function reload() {
-    return listPhotos().then(setPhotos)
+    return Promise.all([
+      listPhotos().then(setPhotos),
+      countDuplicateExtras().then(setDupCount).catch(() => {}),
+    ])
   }
   useEffect(() => { void reload() }, [])
 
@@ -132,6 +144,22 @@ export default function AllPhotosPage() {
           </button>
         )}
       </div>
+
+      {dupCount > 0 && !selecting && (
+        <Link
+          to="/duplicates"
+          className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-amber-700/40 bg-amber-900/20 px-3 py-2 text-sm text-amber-100 hover:bg-amber-900/30"
+        >
+          <span className="flex items-center gap-2">
+            <span className="text-base">🗂️</span>
+            <span>
+              <strong>{dupCount}</strong> doublon{dupCount > 1 ? 's' : ''} à
+              gérer
+            </span>
+          </span>
+          <span className="text-xs text-amber-300/80">Nettoyer →</span>
+        </Link>
+      )}
 
       {!photos ? (
         <p className="text-sm text-slate-400">Chargement…</p>

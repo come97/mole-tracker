@@ -170,6 +170,53 @@ export async function listAllContentHashes(): Promise<Set<string>> {
   return out
 }
 
+/** A group of photos sharing the same content hash (bit-for-bit identical). */
+export type DuplicateGroup = {
+  contentHash: string
+  photos: PhotoRow[]
+}
+
+/**
+ * Returns groups of photos with the same `content_hash`. Each group has at
+ * least 2 entries. Inside a group, photos are ordered oldest-first so the UI
+ * can default to "keep the oldest, delete the rest".
+ *
+ * Photos without a content_hash (legacy rows from before the dedup column
+ * existed) are excluded — we can't determine equality.
+ */
+export async function listDuplicateGroups(): Promise<DuplicateGroup[]> {
+  const all = await listPhotos()
+  const byHash = new Map<string, PhotoRow[]>()
+  for (const p of all) {
+    if (!p.content_hash) continue
+    const arr = byHash.get(p.content_hash) ?? []
+    arr.push(p)
+    byHash.set(p.content_hash, arr)
+  }
+  const groups: DuplicateGroup[] = []
+  for (const [contentHash, photos] of byHash) {
+    if (photos.length < 2) continue
+    photos.sort((a, b) => new Date(a.taken_at).getTime() - new Date(b.taken_at).getTime())
+    groups.push({ contentHash, photos })
+  }
+  // Most recent duplicate activity first.
+  groups.sort((a, b) => {
+    const aMax = Math.max(...a.photos.map(p => new Date(p.created_at).getTime()))
+    const bMax = Math.max(...b.photos.map(p => new Date(p.created_at).getTime()))
+    return bMax - aMax
+  })
+  return groups
+}
+
+/** Total number of *extra* copies across all duplicate groups (group size − 1).
+ *  Useful for a badge that reflects "how many photos you could delete". */
+export async function countDuplicateExtras(): Promise<number> {
+  const groups = await listDuplicateGroups()
+  let n = 0
+  for (const g of groups) n += g.photos.length - 1
+  return n
+}
+
 export async function listZoneCounts(): Promise<Record<string, number>> {
   const { data, error } = await supabase.from('photos').select('body_zone')
   if (error) throw error

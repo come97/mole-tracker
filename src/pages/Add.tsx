@@ -75,11 +75,11 @@ export default function AddPage() {
               // the queue's subscribers update the page as items appear.
               nav('/import')
               try {
-                const { skippedDuplicates } = await importQueue.add(list)
-                if (skippedDuplicates > 0) {
-                  // Hand the skipped count off to /import via location state so it
-                  // can surface the toast — Add doesn't have UI for it.
-                  nav('/import', { replace: true, state: { skippedDuplicates } })
+                const { duplicatesAdded } = await importQueue.add(list)
+                if (duplicatesAdded > 0) {
+                  // Hand the duplicate count off to /import via location state so it
+                  // can surface the info banner — Add doesn't have UI for it.
+                  nav('/import', { replace: true, state: { duplicatesAdded } })
                 }
               } catch (err) {
                 console.error('Failed to enqueue imports', err)

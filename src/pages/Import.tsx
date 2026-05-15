@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import BodyDiagram from '../components/BodyDiagram'
 import { importQueue, type ImportItem } from '../lib/importQueue'
 import { savePhoto } from '../lib/photos'
@@ -34,18 +34,18 @@ export default function ImportPage() {
   const [lastDispatch, setLastDispatch] = useState<{ count: number; zone: string } | null>(null)
   // Picker is async (encrypt + IDB write per file). Keep the UI honest.
   const [adding, setAdding] = useState(false)
-  // Number of duplicate files ignored during the most recent picker batch.
-  const [lastSkipped, setLastSkipped] = useState(0)
+  // Number of duplicate files added (informational, not blocking).
+  const [lastDuplicates, setLastDuplicates] = useState(0)
   // Number of files that failed to import (unreadable, IDB quota, etc).
   const [lastFailed, setLastFailed] = useState(0)
 
-  // Pick up a skipped-duplicate count handed off by /add when imports happened
+  // Pick up a duplicate count handed off by /add when imports happened
   // before this page mounted. Clear the location state so a refresh doesn't re-show it.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
-    const state = location.state as { skippedDuplicates?: number } | null
-    if (state?.skippedDuplicates && state.skippedDuplicates > 0) {
-      setLastSkipped(state.skippedDuplicates)
+    const state = location.state as { duplicatesAdded?: number } | null
+    if (state?.duplicatesAdded && state.duplicatesAdded > 0) {
+      setLastDuplicates(state.duplicatesAdded)
       nav(location.pathname, { replace: true, state: null })
     }
   }, [location, nav])
@@ -84,11 +84,11 @@ export default function ImportPage() {
     if (!files || files.length === 0) return
     setAdding(true)
     setError(null)
-    setLastSkipped(0)
+    setLastDuplicates(0)
     setLastFailed(0)
     try {
-      const { skippedDuplicates, failed } = await importQueue.add(files)
-      if (skippedDuplicates > 0) setLastSkipped(skippedDuplicates)
+      const { duplicatesAdded, failed } = await importQueue.add(files)
+      if (duplicatesAdded > 0) setLastDuplicates(duplicatesAdded)
       if (failed > 0) setLastFailed(failed)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -166,10 +166,18 @@ export default function ImportPage() {
         {error && (
           <p className="mt-3 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">{error}</p>
         )}
-        {lastSkipped > 0 && (
-          <p className="mt-3 rounded-md bg-amber-900/30 px-3 py-2 text-sm text-amber-200">
-            {lastSkipped} doublon{lastSkipped > 1 ? 's' : ''} ignoré{lastSkipped > 1 ? 's' : ''} (déjà en file ou déjà rangée{lastSkipped > 1 ? 's' : ''}).
-          </p>
+        {lastDuplicates > 0 && (
+          <div className="mt-3 flex items-center gap-3 rounded-md bg-amber-900/30 px-3 py-2 text-sm text-amber-200">
+            <span className="flex-1">
+              {lastDuplicates} doublon{lastDuplicates > 1 ? 's' : ''} potentiel{lastDuplicates > 1 ? 's' : ''} détecté{lastDuplicates > 1 ? 's' : ''} et ajouté{lastDuplicates > 1 ? 's' : ''} quand même.
+            </span>
+            <Link
+              to="/duplicates"
+              className="shrink-0 rounded bg-amber-700/50 px-2 py-1 text-xs text-amber-50 hover:bg-amber-700/70"
+            >
+              Gérer
+            </Link>
+          </div>
         )}
         {lastFailed > 0 && (
           <p className="mt-3 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">
@@ -260,6 +268,14 @@ export default function ImportPage() {
                     className="h-full w-full object-cover"
                     alt=""
                   />
+                  {item.isDuplicate && (
+                    <span
+                      title="Doublon potentiel (mêmes octets qu'une photo déjà connue)"
+                      className="absolute left-1 top-1 flex h-5 items-center gap-0.5 rounded-full bg-amber-500/95 px-1.5 text-[9px] font-bold uppercase tracking-wide text-amber-950"
+                    >
+                      ⚠ Dup
+                    </span>
+                  )}
                   {isSel && (
                     <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-500 text-[10px] font-bold text-white">
                       ✓
@@ -310,10 +326,18 @@ export default function ImportPage() {
       {error && (
         <p className="mt-2 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">{error}</p>
       )}
-      {lastSkipped > 0 && (
-        <p className="mt-2 rounded-md bg-amber-900/30 px-3 py-2 text-sm text-amber-200">
-          {lastSkipped} doublon{lastSkipped > 1 ? 's' : ''} ignoré{lastSkipped > 1 ? 's' : ''} (déjà en file ou déjà rangée{lastSkipped > 1 ? 's' : ''}).
-        </p>
+      {lastDuplicates > 0 && (
+        <div className="mt-2 flex items-center gap-3 rounded-md bg-amber-900/30 px-3 py-2 text-sm text-amber-200">
+          <span className="flex-1">
+            {lastDuplicates} doublon{lastDuplicates > 1 ? 's' : ''} potentiel{lastDuplicates > 1 ? 's' : ''} ajouté{lastDuplicates > 1 ? 's' : ''} (badge orange).
+          </span>
+          <Link
+            to="/duplicates"
+            className="shrink-0 rounded bg-amber-700/50 px-2 py-1 text-xs text-amber-50 hover:bg-amber-700/70"
+          >
+            Gérer
+          </Link>
+        </div>
       )}
       {lastFailed > 0 && (
         <p className="mt-2 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">

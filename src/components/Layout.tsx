@@ -1,15 +1,34 @@
 import { useEffect, useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { getCurrentUserEmail, lockSession, signOut } from '../lib/auth'
+import { countDuplicateExtras } from '../lib/photos'
 
 export default function Layout() {
   const nav = useNavigate()
+  const location = useLocation()
   const [email, setEmail] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  // Count of *extra* duplicate copies. Drives the badge on the ⋯ menu so the
+  // user discovers the cleanup tool when there's something to clean up.
+  const [dupCount, setDupCount] = useState<number>(0)
 
   useEffect(() => {
     getCurrentUserEmail().then(setEmail).catch(() => {})
   }, [])
+
+  // Refresh the duplicate count whenever we land on a route that could have
+  // changed it (post-import, post-dispatch, post-delete in the Duplicates page).
+  useEffect(() => {
+    let cancelled = false
+    countDuplicateExtras()
+      .then(n => {
+        if (!cancelled) setDupCount(n)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [location.pathname])
 
   function lock() {
     lockSession()
@@ -31,10 +50,18 @@ export default function Layout() {
         </Link>
         <button
           onClick={() => setMenuOpen(o => !o)}
-          className="rounded-md px-2 py-1 text-xs text-slate-400 hover:bg-slate-800"
+          className="relative rounded-md px-2 py-1 text-xs text-slate-400 hover:bg-slate-800"
           aria-label="Menu compte"
         >
           ⋯
+          {dupCount > 0 && (
+            <span
+              className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-amber-950"
+              aria-label={`${dupCount} doublons à gérer`}
+            >
+              {dupCount > 9 ? '9+' : dupCount}
+            </span>
+          )}
         </button>
 
         {menuOpen && (
@@ -49,6 +76,19 @@ export default function Layout() {
                   Connecté · <span className="text-slate-200">{email}</span>
                 </div>
               )}
+              <button
+                onClick={() => { setMenuOpen(false); nav('/duplicates') }}
+                className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-800"
+              >
+                <span>🗂️ Doublons</span>
+                {dupCount > 0 ? (
+                  <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-amber-950">
+                    {dupCount}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-500">aucun</span>
+                )}
+              </button>
               <button
                 onClick={() => { setMenuOpen(false); lock() }}
                 className="block w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-800"

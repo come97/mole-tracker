@@ -10,6 +10,7 @@ import ZonePage from './pages/Zone'
 import AllPhotosPage from './pages/AllPhotos'
 import ComparePage from './pages/Compare'
 import PhotoDetailPage from './pages/PhotoDetail'
+import DuplicatesPage from './pages/Duplicates'
 import {
   hasSession,
   isPinSetupNeeded,
@@ -141,6 +142,7 @@ export default function App() {
           <Route path="zone/:zone" element={<ZonePage />} />
           <Route path="photo/:id" element={<PhotoDetailPage />} />
           <Route path="compare" element={<ComparePage />} />
+          <Route path="duplicates" element={<DuplicatesPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

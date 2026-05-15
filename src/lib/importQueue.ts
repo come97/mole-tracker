@@ -32,11 +32,18 @@ export type ImportItem = {
   contentHash: string
   previewUrl: string
   createdAt: number
+  /** True when this file's content hash matches one already saved server-side
+   *  or already waiting in the queue. We still import it — the user manages
+   *  duplicates from the dedicated "Doublons" page. */
+  isDuplicate?: boolean
 }
 
 export type AddResult = {
   added: ImportItem[]
-  skippedDuplicates: number
+  /** Number of files that were detected as already-existing copies (same
+   *  bytes), but imported anyway. Shown to the user as an info note linking
+   *  to the Duplicates manager. */
+  duplicatesAdded: number
   failed: number
 }
 
@@ -92,45 +99,39 @@ export const importQueue = {
   },
 
   /**
-   * Encrypt + persist + show. Skips files whose content hash matches:
-   * - another file in the same picker batch
-   * - a file already waiting in the queue
-   * - a photo already dispatched to Supabase
+   * Encrypt + persist + show. Always imports the file — duplicates (same
+   * content hash as another file in this batch, already in the queue, or
+   * already saved server-side) are simply flagged so the UI can surface
+   * "N doublons ajoutés, à gérer dans Doublons".
    *
-   * Non-image files are also ignored. Returns counts so the UI can surface
-   * "N ajoutées, M doublons ignorés".
+   * Non-image files are ignored.
    */
   async add(files: File[] | FileList): Promise<AddResult> {
     const key = ensureKey()
     const arr = Array.from(files).filter(f => f.type.startsWith('image/'))
 
-    // Snapshot of hashes we already know about. listAllContentHashes is one
-    // small query; cheaper than per-file existence checks.
+    // Snapshot of hashes we already know about. Used to *flag* duplicates,
+    // not to skip them — the user wants to be the one deciding what to keep.
     const remoteHashes = await listAllContentHashes().catch(err => {
-      // If the column doesn't exist yet (migration not run) or the network is
-      // down, fall back to local-only dedup so the UX still works.
-      console.warn('Could not load remote content hashes, dedup is local-only:', err)
+      console.warn('Could not load remote content hashes, dup flagging is local-only:', err)
       return new Set<string>()
     })
     const queueHashes = new Set(items.map(i => i.contentHash))
     const seenInBatch = new Set<string>()
 
     const added: ImportItem[] = []
-    let skippedDuplicates = 0
+    let duplicatesAdded = 0
     const failures: { name: string; error: unknown }[] = []
 
     for (const file of arr) {
       try {
         const bytes = new Uint8Array(await file.arrayBuffer())
         const contentHash = await sha256Hex(bytes)
-        if (
+        const isDuplicate =
           seenInBatch.has(contentHash) ||
           queueHashes.has(contentHash) ||
           remoteHashes.has(contentHash)
-        ) {
-          skippedDuplicates++
-          continue
-        }
+        if (isDuplicate) duplicatesAdded++
         seenInBatch.add(contentHash)
 
         const id = crypto.randomUUID()
@@ -157,6 +158,7 @@ export const importQueue = {
           contentHash,
           previewUrl,
           createdAt: rec.createdAt,
+          isDuplicate,
         }
         added.push(item)
         // Notify per-file so the UI shows thumbs trickling in for big batches.
@@ -172,7 +174,7 @@ export const importQueue = {
     if (failures.length > 0) {
       console.warn(`${failures.length} file(s) failed to import`, failures)
     }
-    return { added, skippedDuplicates, failed: failures.length }
+    return { added, duplicatesAdded, failed: failures.length }
   },
 
   /**
