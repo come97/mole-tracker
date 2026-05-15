@@ -26,6 +26,22 @@ type AppState =
   | { kind: 'setup-pin' }
   | { kind: 'locked'; error?: string | null }
   | { kind: 'unlocked' }
+  // Surfaced when bootstrap can't reach the backend (Supabase paused, DNS
+  // failure, offline, …) so the user sees something actionable instead of
+  // an infinite spinner.
+  | { kind: 'backend-down'; detail: string }
+
+/** Wrap an async call so it rejects after `ms` instead of hanging forever.
+ *  Supabase's auth client can stall for tens of seconds when its endpoint is
+ *  unreachable — this keeps the UI honest. */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms),
+    ),
+  ])
+}
 
 export default function App() {
   const [state, setState] = useState<AppState>({ kind: 'loading' })
@@ -36,13 +52,15 @@ export default function App() {
     let cancelled = false
     async function boot() {
       try {
-        const authed = await hasSession()
+        // 8s is plenty for a healthy network round-trip; anything longer
+        // means the backend is unreachable — show an error, don't spin.
+        const authed = await withTimeout(hasSession(), 8000, 'hasSession')
         if (cancelled) return
         if (!authed) {
           setState({ kind: 'unauthed' })
           return
         }
-        const needSetup = await isPinSetupNeeded()
+        const needSetup = await withTimeout(isPinSetupNeeded(), 8000, 'isPinSetupNeeded')
         if (cancelled) return
         if (needSetup) {
           setState({ kind: 'setup-pin' })
@@ -56,7 +74,15 @@ export default function App() {
       } catch (e) {
         if (cancelled) return
         console.error('Bootstrap failed', e)
-        setState({ kind: 'unauthed' })
+        const msg = e instanceof Error ? e.message : String(e)
+        // Network/timeout errors → dedicated "backend down" screen with a
+        // retry button. Auth-shaped failures fall back to the login screen
+        // as before.
+        if (/timeout|fetch|network/i.test(msg)) {
+          setState({ kind: 'backend-down', detail: msg })
+        } else {
+          setState({ kind: 'unauthed' })
+        }
       }
     }
     void boot()
@@ -75,6 +101,32 @@ export default function App() {
 
   if (state.kind === 'loading') {
     return <FullCenter>Chargement…</FullCenter>
+  }
+
+  if (state.kind === 'backend-down') {
+    return (
+      <div className="flex min-h-full items-center justify-center px-6">
+        <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900/60 p-6 text-center">
+          <p className="text-3xl">⚠️</p>
+          <h1 className="mt-2 text-base font-semibold text-slate-100">
+            Serveur injoignable
+          </h1>
+          <p className="mt-2 text-sm text-slate-400">
+            Le backend (Supabase) ne répond pas. Si le projet a été mis en
+            pause par inactivité, attends une minute et réessaie.
+          </p>
+          <p className="mt-3 break-words text-[11px] text-slate-500">
+            {state.detail}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-5 w-full rounded-xl bg-indigo-500 px-4 py-3 font-medium text-white active:bg-indigo-600"
+          >
+            Réessayer
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (state.kind === 'unauthed') {
