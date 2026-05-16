@@ -36,7 +36,32 @@ export default function PhotoThumb({ photo, className, full }: Props) {
     return () => { cancelled = true }
   }, [cacheKey, photo, full])
 
-  if (error) return <div className={`flex items-center justify-center bg-slate-900 text-xs text-rose-400 ${className ?? ''}`}>err</div>
-  if (!url) return <div className={`animate-pulse bg-slate-800 ${className ?? ''}`} />
+  if (error)
+    return (
+      <div
+        className={className}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'var(--surface-3)',
+          color: 'var(--danger)',
+          fontSize: 11,
+          fontFamily: 'var(--mono)',
+        }}
+      >
+        err
+      </div>
+    )
+  if (!url)
+    return (
+      <div
+        className={className}
+        style={{
+          background: 'var(--surface-3)',
+          animation: 'pulse 1.6s var(--ease) infinite',
+        }}
+      />
+    )
   return <img src={url} className={className} alt="photo chiffrée" />
 }

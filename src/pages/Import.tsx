@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import BodyDiagram from '../components/BodyDiagram'
 import { importQueue, type ImportItem } from '../lib/importQueue'
 import { savePhoto } from '../lib/photos'
 import { zoneLabel } from '../lib/bodyZones'
+import {
+  Button,
+  Field,
+  Icon,
+  IconButton,
+  IconTile,
+  TopBar,
+} from '../components/ui'
 
-/** Subscribes to the in-memory import queue. */
 function useImportQueue(): ImportItem[] {
-  return useSyncExternalStore(
-    importQueue.subscribe,
-    importQueue.list,
-    importQueue.list,
-  )
+  return useSyncExternalStore(importQueue.subscribe, importQueue.list, importQueue.list)
 }
 
 export default function ImportPage() {
@@ -20,27 +23,16 @@ export default function ImportPage() {
   const location = useLocation()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  // Selection: which queued items will the next zone-click dispatch.
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  // Optional note applied to the whole batch on dispatch.
   const [note, setNote] = useState('')
-  // Optional date (YYYY-MM-DD) applied to the whole batch on dispatch.
-  // Empty = use the current time when savePhoto runs (per-photo).
   const [batchDate, setBatchDate] = useState('')
-  // Upload progress while a dispatch is running.
   const [busy, setBusy] = useState<{ done: number; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // Last dispatch result, shown briefly so the user sees what happened.
   const [lastDispatch, setLastDispatch] = useState<{ count: number; zone: string } | null>(null)
-  // Picker is async (encrypt + IDB write per file). Keep the UI honest.
   const [adding, setAdding] = useState(false)
-  // Number of duplicate files added (informational, not blocking).
   const [lastDuplicates, setLastDuplicates] = useState(0)
-  // Number of files that failed to import (unreadable, IDB quota, etc).
   const [lastFailed, setLastFailed] = useState(0)
 
-  // Pick up a duplicate count handed off by /add when imports happened
-  // before this page mounted. Clear the location state so a refresh doesn't re-show it.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     const state = location.state as { duplicatesAdded?: number } | null
@@ -50,13 +42,11 @@ export default function ImportPage() {
     }
   }, [location, nav])
 
-  // Auto-select newly added items so a second-batch import doesn't lose context.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     setSelected(prev => {
       const queueIds = new Set(queue.map(i => i.id))
-      // Drop ids no longer in queue (already dispatched)
       const next = new Set([...prev].filter(id => queueIds.has(id)))
-      // If there's nothing selected and items remain, select all by default.
       if (next.size === 0 && queue.length > 0) {
         for (const i of queue) next.add(i.id)
       }
@@ -72,7 +62,6 @@ export default function ImportPage() {
       return next
     })
   }
-
   function selectAll() {
     setSelected(new Set(queue.map(i => i.id)))
   }
@@ -97,8 +86,6 @@ export default function ImportPage() {
     }
   }
 
-  // Convert YYYY-MM-DD into a Date at noon local time so timezone shifts don't
-  // accidentally bump the day backwards or forwards.
   function parseBatchDate(value: string): Date | undefined {
     if (!value) return undefined
     const [y, m, d] = value.split('-').map(Number)
@@ -114,12 +101,10 @@ export default function ImportPage() {
     }
     setError(null)
     setLastDispatch(null)
-
     const ids = [...selected]
     const items = queue.filter(i => ids.includes(i.id))
     setBusy({ done: 0, total: items.length })
     const takenAt = parseBatchDate(batchDate)
-
     const succeededIds: string[] = []
     try {
       for (let i = 0; i < items.length; i++) {
@@ -140,56 +125,35 @@ export default function ImportPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
-      // Always remove the photos that did upload, even if a later one failed —
-      // the user can retry on the rest.
       if (succeededIds.length > 0) await importQueue.removeMany(succeededIds)
       setBusy(null)
     }
   }
 
-  // Empty state — no photos in queue and no recent dispatch.
+  /* Empty state — no photos in queue and no recent dispatch. */
   if (queue.length === 0 && !lastDispatch) {
     return (
-      <div className="px-4 py-6">
-        <h2 className="text-lg font-semibold text-slate-100">Importer & dispatcher</h2>
-        <p className="mt-2 text-sm text-slate-400">
-          Sélectionne plusieurs photos depuis ton appareil. Tu pourras les ranger plus tard, elles
-          restent ici, chiffrées, en attendant.
-        </p>
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={adding}
-          className="mt-6 w-full rounded-xl bg-indigo-500 px-4 py-4 font-medium text-white active:bg-indigo-600 disabled:opacity-60"
-        >
-          {adding ? 'Chiffrement local…' : '🖼️ Choisir des photos'}
-        </button>
-        {error && (
-          <p className="mt-3 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">{error}</p>
-        )}
-        {lastDuplicates > 0 && (
-          <div className="mt-3 flex items-center gap-3 rounded-md bg-amber-900/30 px-3 py-2 text-sm text-amber-200">
-            <span className="flex-1">
-              {lastDuplicates} doublon{lastDuplicates > 1 ? 's' : ''} potentiel{lastDuplicates > 1 ? 's' : ''} détecté{lastDuplicates > 1 ? 's' : ''} et ajouté{lastDuplicates > 1 ? 's' : ''} quand même.
-            </span>
-            <Link
-              to="/duplicates"
-              className="shrink-0 rounded bg-amber-700/50 px-2 py-1 text-xs text-amber-50 hover:bg-amber-700/70"
-            >
-              Gérer
-            </Link>
-          </div>
-        )}
-        {lastFailed > 0 && (
-          <p className="mt-3 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">
-            {lastFailed} fichier{lastFailed > 1 ? 's' : ''} illisible{lastFailed > 1 ? 's' : ''} (format non supporté ou trop gros). Voir la console pour le détail.
-          </p>
-        )}
+      <div style={{ paddingBottom: 100 }}>
+        <TopBar
+          title="Importer & ranger"
+          left={<IconButton icon="back" label="Retour" to="/" />}
+        />
+        <div style={{ padding: '16px 18px 0' }}>
+          <EmptyImport
+            onPick={() => fileInputRef.current?.click()}
+            adding={adding}
+            error={error}
+            duplicates={lastDuplicates}
+            failed={lastFailed}
+            onSeeDuplicates={() => nav('/duplicates')}
+          />
+        </div>
         <input
           ref={fileInputRef}
           type="file"
           accept="image/*"
           multiple
-          className="hidden"
+          style={{ display: 'none' }}
           onChange={e => {
             void handlePick(e.target.files)
             e.target.value = ''
@@ -199,58 +163,146 @@ export default function ImportPage() {
     )
   }
 
-  return (
-    <div className="px-3 pt-3 pb-6">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-base font-semibold text-slate-100">
-          Dispatcher{' '}
-          <span className="text-slate-400 font-normal">
-            · {queue.length} en attente
-          </span>
-        </h2>
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-200 disabled:opacity-60"
-          disabled={!!busy || adding}
-        >
-          {adding ? '…' : '+ Ajouter'}
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={e => {
-            void handlePick(e.target.files)
-            e.target.value = ''
-          }}
-        />
-      </div>
+  const selectedCount = selected.size
+  const totalProgress = busy ? Math.round((busy.done / Math.max(1, busy.total)) * 100) : 0
 
-      {/* Thumbnail strip with selection */}
-      {queue.length > 0 && (
-        <>
-          <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
-            <span>{selected.size} / {queue.length} sélectionnée{selected.size > 1 ? 's' : ''}</span>
-            <div className="flex gap-2">
-              <button
-                onClick={selectAll}
-                className="rounded px-2 py-0.5 text-slate-300 hover:bg-slate-800"
-                disabled={!!busy}
-              >
-                Tout
-              </button>
-              <button
-                onClick={selectNone}
-                className="rounded px-2 py-0.5 text-slate-300 hover:bg-slate-800"
-                disabled={!!busy}
-              >
-                Aucune
-              </button>
+  return (
+    <div style={{ paddingBottom: 100 }}>
+      <TopBar
+        title="Importer & ranger"
+        sub={`${queue.length} photo${queue.length > 1 ? 's' : ''} en attente`}
+        left={<IconButton icon="back" label="Retour" to="/" />}
+        right={
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!!busy || adding}
+            className="focus-ring"
+            style={{
+              padding: '6px 10px',
+              borderRadius: 10,
+              background: 'var(--surface)',
+              color: 'var(--ink-2)',
+              border: '1px solid var(--hairline)',
+              fontSize: 12,
+              fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            <Icon name="plus" size={14} />
+            Ajouter
+          </button>
+        }
+      />
+
+      <div style={{ padding: '8px 18px 0' }}>
+        {/* Encryption progress card */}
+        <div
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--hairline)',
+            borderRadius: 14,
+            padding: '12px 14px',
+            marginBottom: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <IconTile icon="shield" size={36} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
+              {busy
+                ? `Envoi chiffré · ${busy.done}/${busy.total}`
+                : `Chiffrement local · ${queue.length} en attente`}
+            </div>
+            <div
+              style={{
+                marginTop: 6,
+                height: 4,
+                borderRadius: 999,
+                background: 'var(--surface-3)',
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  width: busy ? `${totalProgress}%` : '100%',
+                  height: '100%',
+                  background: 'var(--primary)',
+                  borderRadius: 999,
+                  transition: 'width var(--t-med) var(--ease)',
+                }}
+              />
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+              Les fichiers ne quittent ton appareil qu'une fois chiffrés.
             </div>
           </div>
-          <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
+        </div>
+
+        {/* Banners */}
+        {error && <Banner tone="danger">{error}</Banner>}
+        {lastDuplicates > 0 && (
+          <Banner tone="warning" action="Gérer" onAction={() => nav('/duplicates')}>
+            {lastDuplicates} doublon{lastDuplicates > 1 ? 's' : ''} potentiel
+            {lastDuplicates > 1 ? 's' : ''} ajouté{lastDuplicates > 1 ? 's' : ''} (badge orange).
+          </Banner>
+        )}
+        {lastFailed > 0 && (
+          <Banner tone="danger">
+            {lastFailed} fichier{lastFailed > 1 ? 's' : ''} illisible
+            {lastFailed > 1 ? 's' : ''} (format non supporté ou trop gros).
+          </Banner>
+        )}
+        {lastDispatch && !busy && (
+          <Banner
+            tone="success"
+            action="Voir la zone"
+            onAction={() => nav(`/zone/${lastDispatch.zone}`)}
+          >
+            {lastDispatch.count} photo{lastDispatch.count > 1 ? 's' : ''} rangée
+            {lastDispatch.count > 1 ? 's' : ''} dans «&nbsp;{zoneLabel(lastDispatch.zone)}&nbsp;».
+            {queue.length > 0 ? ' Continue avec le reste.' : ''}
+          </Banner>
+        )}
+
+        {/* Selection bar */}
+        {queue.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 8,
+            }}
+          >
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{selectedCount}</strong> /{' '}
+              {queue.length} sélectionnée{selectedCount > 1 ? 's' : ''}
+            </div>
+            <div style={{ display: 'inline-flex', gap: 4 }}>
+              <SmallTextBtn onClick={selectAll} disabled={!!busy}>
+                Tout
+              </SmallTextBtn>
+              <SmallTextBtn onClick={selectNone} disabled={!!busy}>
+                Aucune
+              </SmallTextBtn>
+            </div>
+          </div>
+        )}
+
+        {/* Queue grid */}
+        {queue.length > 0 && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 6,
+              marginBottom: 14,
+            }}
+          >
             {queue.map(item => {
               const isSel = selected.has(item.id)
               return (
@@ -259,109 +311,364 @@ export default function ImportPage() {
                   type="button"
                   onClick={() => toggle(item.id)}
                   disabled={!!busy}
-                  className={`relative aspect-square overflow-hidden rounded-lg border-2 transition ${
-                    isSel ? 'border-indigo-400' : 'border-slate-700'
-                  }`}
+                  className="focus-ring"
+                  style={{
+                    position: 'relative',
+                    aspectRatio: '1 / 1',
+                    borderRadius: 10,
+                    overflow: 'hidden',
+                    padding: 0,
+                    border: isSel ? '2.5px solid var(--primary)' : '1px solid var(--hairline)',
+                    boxShadow: isSel ? '0 0 0 3px var(--primary-50)' : 'none',
+                    background: 'var(--surface-3)',
+                  }}
                 >
                   <img
                     src={item.previewUrl}
-                    className="h-full w-full object-cover"
                     alt=""
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                   />
                   {item.isDuplicate && (
                     <span
                       title="Doublon potentiel (mêmes octets qu'une photo déjà connue)"
-                      className="absolute left-1 top-1 flex h-5 items-center gap-0.5 rounded-full bg-amber-500/95 px-1.5 text-[9px] font-bold uppercase tracking-wide text-amber-950"
+                      style={{
+                        position: 'absolute',
+                        left: 4,
+                        top: 4,
+                        padding: '1px 5px',
+                        borderRadius: 4,
+                        background: 'var(--warning)',
+                        color: '#fff',
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 3,
+                      }}
                     >
-                      ⚠ Dup
+                      <Icon name="alert" size={8} stroke="#fff" fill="#fff" />
+                      Dup
                     </span>
                   )}
                   {isSel && (
-                    <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-500 text-[10px] font-bold text-white">
-                      ✓
+                    <span
+                      style={{
+                        position: 'absolute',
+                        right: 4,
+                        top: 4,
+                        width: 20,
+                        height: 20,
+                        borderRadius: 999,
+                        background: 'var(--primary)',
+                        color: '#fff',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Icon name="check" size={12} stroke="#fff" strokeWidth={2.5} />
                     </span>
                   )}
                 </button>
               )
             })}
           </div>
+        )}
 
-          {/* Batch metadata */}
-          <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
-            <div>
-              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
-                Note pour le lot (optionnelle, chiffrée)
-              </label>
+        {/* Batch metadata */}
+        {queue.length > 0 && (
+          <>
+            <Field label="Note pour le lot (chiffrée)">
               <input
                 value={note}
                 onChange={e => setNote(e.target.value)}
-                placeholder="Ex. : suivi mensuel"
-                className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                placeholder="Ex : suivi mensuel"
                 disabled={!!busy}
+                className="focus-ring"
+                style={{
+                  width: '100%',
+                  padding: '11px 14px',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--hairline)',
+                  borderRadius: 12,
+                  fontSize: 14,
+                  color: 'var(--ink)',
+                  fontFamily: 'inherit',
+                }}
               />
+            </Field>
+            <Field label="Date de prise (sinon : aujourd'hui)">
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '11px 14px',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--hairline)',
+                  borderRadius: 12,
+                }}
+              >
+                <Icon name="calendar" size={16} stroke="var(--muted)" />
+                <input
+                  type="date"
+                  value={batchDate}
+                  onChange={e => setBatchDate(e.target.value)}
+                  disabled={!!busy}
+                  className="focus-ring"
+                  style={{
+                    flex: 1,
+                    fontFamily: 'var(--mono)',
+                    fontSize: 13,
+                    color: 'var(--ink)',
+                    background: 'transparent',
+                    border: 0,
+                    outline: 'none',
+                  }}
+                />
+              </div>
+            </Field>
+          </>
+        )}
+
+        {/* Atlas-as-dispatcher */}
+        {queue.length > 0 && (
+          <div
+            style={{
+              marginTop: 6,
+              padding: 14,
+              background: 'var(--primary-50)',
+              border: '1px dashed var(--primary-200)',
+              borderRadius: 14,
+              textAlign: 'center',
+            }}
+          >
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: 'var(--primary-700)',
+                letterSpacing: '-0.005em',
+              }}
+            >
+              Choisis une zone du corps
             </div>
-            <div>
-              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
-                Date de prise (sinon : aujourd'hui)
-              </label>
-              <input
-                type="date"
-                value={batchDate}
-                onChange={e => setBatchDate(e.target.value)}
-                className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
-                disabled={!!busy}
-              />
+            <div style={{ fontSize: 11, color: 'var(--ink-2)', marginTop: 2 }}>
+              Touche une zone pour ranger les {selectedCount} photo
+              {selectedCount > 1 ? 's' : ''} sélectionnée{selectedCount > 1 ? 's' : ''}.
+            </div>
+            <div style={{ marginTop: 10, background: 'var(--surface)', borderRadius: 12, padding: 8 }}>
+              <BodyDiagram counts={{}} onZoneClick={dispatchTo} />
             </div>
           </div>
-        </>
-      )}
+        )}
+      </div>
 
-      {/* Body picker as destination */}
-      <p className="mt-4 px-1 text-center text-sm text-slate-300">
-        {busy
-          ? `Chiffrement & envoi… ${busy.done}/${busy.total}`
-          : 'Touche la zone du corps où ranger les photos sélectionnées.'}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        style={{ display: 'none' }}
+        onChange={e => {
+          void handlePick(e.target.files)
+          e.target.value = ''
+        }}
+      />
+    </div>
+  )
+}
+
+function Banner({
+  children,
+  tone,
+  action,
+  onAction,
+}: {
+  children: React.ReactNode
+  tone: 'success' | 'warning' | 'danger'
+  action?: string
+  onAction?: () => void
+}) {
+  const styles: Record<typeof tone, { bg: string; fg: string; border: string }> = {
+    success: { bg: 'var(--success-50)', fg: 'var(--success-700)', border: 'rgba(31,138,90,0.18)' },
+    warning: { bg: 'var(--warning-50)', fg: 'var(--warning-700)', border: '#f1dba0' },
+    danger: { bg: 'var(--danger-50)', fg: 'var(--danger-700)', border: 'rgba(196,74,74,0.2)' },
+  }
+  const s = styles[tone]
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '10px 12px',
+        marginBottom: 12,
+        background: s.bg,
+        border: `1px solid ${s.border}`,
+        borderRadius: 12,
+        color: s.fg,
+        fontSize: 13,
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0, fontWeight: 500 }}>{children}</div>
+      {action && (
+        <button
+          onClick={onAction}
+          className="focus-ring"
+          style={{
+            padding: '5px 10px',
+            borderRadius: 8,
+            background: 'rgba(255,255,255,0.6)',
+            border: `1px solid ${s.border}`,
+            color: s.fg,
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+        >
+          {action}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function SmallTextBtn({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode
+  onClick: () => void
+  disabled?: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="focus-ring"
+      style={{
+        padding: '4px 10px',
+        borderRadius: 8,
+        fontSize: 12,
+        color: 'var(--ink-2)',
+        fontWeight: 550,
+        background: 'var(--surface)',
+        border: '1px solid var(--hairline)',
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+function EmptyImport({
+  onPick,
+  adding,
+  error,
+  duplicates,
+  failed,
+  onSeeDuplicates,
+}: {
+  onPick: () => void
+  adding: boolean
+  error: string | null
+  duplicates: number
+  failed: number
+  onSeeDuplicates: () => void
+}) {
+  return (
+    <div
+      style={{
+        padding: 24,
+        background: 'var(--surface)',
+        border: '1px dashed var(--hairline)',
+        borderRadius: 16,
+        textAlign: 'center',
+      }}
+    >
+      <IconTile icon="upload" size={44} />
+      <h2
+        style={{
+          margin: '12px 0 4px',
+          fontSize: 18,
+          fontWeight: 600,
+          color: 'var(--ink)',
+          letterSpacing: '-0.01em',
+        }}
+      >
+        Importer un lot de photos
+      </h2>
+      <p
+        style={{
+          margin: 0,
+          fontSize: 13,
+          color: 'var(--muted)',
+          lineHeight: '19px',
+        }}
+      >
+        Choisis plusieurs photos depuis ton appareil. Tu pourras les ranger plus tard
+        — elles restent ici, chiffrées, en attendant.
       </p>
-
+      <div style={{ marginTop: 14 }}>
+        <Button variant="primary" size="lg" icon="upload" onClick={onPick} loading={adding}>
+          {adding ? 'Chiffrement local…' : 'Choisir des photos'}
+        </Button>
+      </div>
       {error && (
-        <p className="mt-2 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">{error}</p>
-      )}
-      {lastDuplicates > 0 && (
-        <div className="mt-2 flex items-center gap-3 rounded-md bg-amber-900/30 px-3 py-2 text-sm text-amber-200">
-          <span className="flex-1">
-            {lastDuplicates} doublon{lastDuplicates > 1 ? 's' : ''} potentiel{lastDuplicates > 1 ? 's' : ''} ajouté{lastDuplicates > 1 ? 's' : ''} (badge orange).
-          </span>
-          <Link
-            to="/duplicates"
-            className="shrink-0 rounded bg-amber-700/50 px-2 py-1 text-xs text-amber-50 hover:bg-amber-700/70"
-          >
-            Gérer
-          </Link>
+        <div
+          role="alert"
+          style={{
+            marginTop: 12,
+            padding: '10px 12px',
+            borderRadius: 10,
+            background: 'var(--danger-50)',
+            color: 'var(--danger-700)',
+            fontSize: 13,
+          }}
+        >
+          {error}
         </div>
       )}
-      {lastFailed > 0 && (
-        <p className="mt-2 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">
-          {lastFailed} fichier{lastFailed > 1 ? 's' : ''} illisible{lastFailed > 1 ? 's' : ''} (format non supporté ou trop gros). Voir la console pour le détail.
-        </p>
-      )}
-      {lastDispatch && !busy && (
-        <p className="mt-2 rounded-md bg-emerald-900/40 px-3 py-2 text-sm text-emerald-200 flex items-center justify-between gap-3">
-          <span>
-            ✅ {lastDispatch.count} photo{lastDispatch.count > 1 ? 's' : ''} rangée
-            {lastDispatch.count > 1 ? 's' : ''} dans « {zoneLabel(lastDispatch.zone)} ».
-            {queue.length > 0 ? ' Continue avec le reste.' : ''}
+      {duplicates > 0 && (
+        <div
+          style={{
+            marginTop: 12,
+            padding: '10px 12px',
+            borderRadius: 10,
+            background: 'var(--warning-50)',
+            color: 'var(--warning-700)',
+            fontSize: 13,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <span style={{ flex: 1, textAlign: 'left' }}>
+            {duplicates} doublon{duplicates > 1 ? 's' : ''} potentiel
+            {duplicates > 1 ? 's' : ''} ajouté{duplicates > 1 ? 's' : ''}.
           </span>
-          <button
-            onClick={() => nav(`/zone/${lastDispatch.zone}`)}
-            className="shrink-0 rounded bg-emerald-700/60 px-2 py-1 text-xs text-emerald-50"
-          >
-            Voir la zone
-          </button>
-        </p>
+          <Button variant="tonal" size="sm" onClick={onSeeDuplicates}>
+            Gérer
+          </Button>
+        </div>
       )}
-
-      {/* counts={} so we don't show existing photo counts here — keeps the picker focused on dispatch */}
-      <BodyDiagram counts={{}} onZoneClick={dispatchTo} />
+      {failed > 0 && (
+        <div
+          style={{
+            marginTop: 12,
+            padding: '10px 12px',
+            borderRadius: 10,
+            background: 'var(--danger-50)',
+            color: 'var(--danger-700)',
+            fontSize: 13,
+          }}
+        >
+          {failed} fichier{failed > 1 ? 's' : ''} illisible{failed > 1 ? 's' : ''}.
+        </div>
+      )}
     </div>
   )
 }

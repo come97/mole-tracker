@@ -4,18 +4,34 @@ import CameraCapture from '../components/CameraCapture'
 import { BODY_ZONES, zoneLabel } from '../lib/bodyZones'
 import { savePhoto } from '../lib/photos'
 import { importQueue } from '../lib/importQueue'
+import {
+  Button,
+  Field,
+  Icon,
+  IconButton,
+  IconTile,
+  TopBar,
+  type IconName,
+} from '../components/ui'
+
+type Step = 'method' | 'review'
 
 export default function AddPage() {
   const [params] = useSearchParams()
   const initialZone = params.get('zone') ?? ''
   const nav = useNavigate()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const bulkInputRef = useRef<HTMLInputElement | null>(null)
+
   const [file, setFile] = useState<File | null>(null)
   const [zone, setZone] = useState(initialZone)
   const [note, setNote] = useState('')
   const [showCamera, setShowCamera] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [zonePickerOpen, setZonePickerOpen] = useState(false)
+
+  const step: Step = file ? 'review' : 'method'
 
   const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file])
 
@@ -38,117 +54,561 @@ export default function AddPage() {
     }
   }
 
+  function resetFile() {
+    setFile(null)
+    setNote('')
+    setError(null)
+  }
+
   return (
-    <div className="px-4 py-4">
-      <h2 className="text-lg font-semibold text-slate-100">Nouvelle photo</h2>
+    <div style={{ paddingBottom: 100 }}>
+      <TopBar
+        title={step === 'method' ? 'Nouvelle photo' : 'Vérifie et range'}
+        sub={`Étape ${step === 'method' ? '1' : '2'} sur 2`}
+        left={
+          step === 'method' ? (
+            <IconButton icon="close" label="Annuler" to="/" />
+          ) : (
+            <IconButton icon="back" label="Retour" onClick={resetFile} />
+          )
+        }
+      />
 
-      {!file ? (
-        <div className="mt-6 grid gap-3">
-          <button
-            onClick={() => setShowCamera(true)}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 py-4 text-white font-medium active:bg-indigo-600"
-          >
-            📷 Prendre une photo
-          </button>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-4 text-slate-100 active:bg-slate-800"
-          >
-            🖼️ Importer depuis l'appareil
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={async e => {
-              const files = e.target.files
-              if (!files || files.length === 0) return
-              // Always go through the import queue for picker-imported files,
-              // even a single one — the dispatch UI is more flexible than the
-              // single-photo form (multi-select + body picker).
-              // Reset the input synchronously so re-picking the same file later still fires onChange.
-              const list = files
-              e.target.value = ''
-              // Navigate first so the user lands on /import while encryption is happening;
-              // the queue's subscribers update the page as items appear.
-              nav('/import')
-              try {
-                const { duplicatesAdded } = await importQueue.add(list)
-                if (duplicatesAdded > 0) {
-                  // Hand the duplicate count off to /import via location state so it
-                  // can surface the info banner — Add doesn't have UI for it.
-                  nav('/import', { replace: true, state: { duplicatesAdded } })
-                }
-              } catch (err) {
-                console.error('Failed to enqueue imports', err)
-              }
-            }}
+      <div style={{ padding: '10px 18px 0' }}>
+        <ProgressBar step={step} />
+        {step === 'method' ? (
+          <MethodStep
+            onCamera={() => setShowCamera(true)}
+            onImportSingle={() => fileInputRef.current?.click()}
+            onImportBulk={() => bulkInputRef.current?.click()}
           />
-        </div>
-      ) : (
-        <div className="mt-4 grid gap-4">
-          <div className="overflow-hidden rounded-xl bg-black">
-            {previewUrl && <img src={previewUrl} className="max-h-[50vh] w-full object-contain" />}
-          </div>
+        ) : (
+          <ReviewStep
+            previewUrl={previewUrl}
+            zone={zone}
+            note={note}
+            onNote={setNote}
+            onOpenZone={() => setZonePickerOpen(true)}
+            error={error}
+          />
+        )}
+      </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
-              Zone du corps
-            </label>
-            <select
-              value={zone}
-              onChange={e => setZone(e.target.value)}
-              className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
-            >
-              <option value="">— Choisir —</option>
-              {BODY_ZONES.map(z => (
-                <option key={z.id} value={z.id}>{z.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
-              Note (optionnelle, chiffrée)
-            </label>
-            <textarea
-              value={note}
-              onChange={e => setNote(e.target.value)}
-              rows={3}
-              placeholder="Ex. : grain de beauté côté gauche, contour foncé"
-              className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
-            />
-          </div>
-
-          {error && <p className="text-sm text-rose-400">{error}</p>}
-
-          <div className="flex gap-3">
-            <button
-              onClick={() => { setFile(null); setNote(''); }}
-              className="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-slate-200 active:bg-slate-800"
-              disabled={busy}
-            >
-              Reprendre
-            </button>
-            <button
-              onClick={save}
-              disabled={!zone || busy}
-              className="flex-[2] rounded-xl bg-indigo-500 px-4 py-3 font-medium text-white active:bg-indigo-600 disabled:opacity-40"
-            >
-              {busy ? 'Chiffrement & envoi…' : 'Enregistrer (chiffré)'}
-            </button>
-          </div>
+      {step === 'review' && (
+        <div
+          style={{
+            position: 'fixed',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            bottom: 80,
+            width: '100%',
+            maxWidth: 640,
+            padding: '12px 18px',
+            background:
+              'linear-gradient(to top, var(--bg) 60%, rgba(245,247,251,0))',
+            display: 'flex',
+            gap: 10,
+            zIndex: 4,
+          }}
+        >
+          <Button variant="secondary" size="lg" style={{ flex: 1 }} onClick={resetFile} disabled={busy}>
+            Reprendre
+          </Button>
+          <Button
+            variant="primary"
+            size="lg"
+            icon="check"
+            style={{ flex: 2 }}
+            onClick={() => void save()}
+            disabled={!zone}
+            loading={busy}
+          >
+            {busy ? 'Chiffrement…' : 'Enregistrer'}
+          </Button>
         </div>
       )}
+
+      {/* Hidden file inputs */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        style={{ display: 'none' }}
+        onChange={e => {
+          const f = e.target.files?.[0]
+          e.target.value = ''
+          if (f) setFile(f)
+        }}
+      />
+      <input
+        ref={bulkInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        style={{ display: 'none' }}
+        onChange={async e => {
+          const files = e.target.files
+          if (!files || files.length === 0) return
+          const list = files
+          e.target.value = ''
+          nav('/import')
+          try {
+            const { duplicatesAdded } = await importQueue.add(list)
+            if (duplicatesAdded > 0) {
+              nav('/import', { replace: true, state: { duplicatesAdded } })
+            }
+          } catch (err) {
+            console.error('Failed to enqueue imports', err)
+          }
+        }}
+      />
 
       {showCamera && (
         <CameraCapture
           onCancel={() => setShowCamera(false)}
-          onCapture={f => { setFile(f); setShowCamera(false); }}
+          onCapture={f => {
+            setFile(f)
+            setShowCamera(false)
+          }}
         />
       )}
+
+      {zonePickerOpen && (
+        <ZonePicker
+          value={zone}
+          onPick={z => {
+            setZone(z)
+            setZonePickerOpen(false)
+          }}
+          onClose={() => setZonePickerOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+function ProgressBar({ step }: { step: Step }) {
+  return (
+    <div style={{ display: 'flex', gap: 6, marginBottom: 18 }}>
+      <span style={{ flex: 1, height: 4, borderRadius: 999, background: 'var(--primary)' }} />
+      <span
+        style={{
+          flex: 1,
+          height: 4,
+          borderRadius: 999,
+          background: step === 'review' ? 'var(--primary)' : 'var(--hairline)',
+        }}
+      />
+    </div>
+  )
+}
+
+function MethodStep({
+  onCamera,
+  onImportSingle,
+  onImportBulk,
+}: {
+  onCamera: () => void
+  onImportSingle: () => void
+  onImportBulk: () => void
+}) {
+  return (
+    <>
+      <h2
+        style={{
+          margin: '0 0 4px',
+          fontSize: 22,
+          fontWeight: 600,
+          color: 'var(--ink)',
+          letterSpacing: '-0.02em',
+        }}
+      >
+        Comment ajouter cette photo&nbsp;?
+      </h2>
+      <p style={{ margin: 0, fontSize: 14, color: 'var(--muted)', lineHeight: '20px' }}>
+        Toutes les photos sont{' '}
+        <strong style={{ color: 'var(--ink-2)' }}>chiffrées sur ton appareil</strong> avant d'être stockées.
+      </p>
+
+      <div style={{ display: 'grid', gap: 10, marginTop: 22 }}>
+        <MethodCard
+          icon="camera"
+          title="Prendre une photo"
+          sub="Recommandé · bon cadrage et éclairage"
+          primary
+          onClick={onCamera}
+        />
+        <MethodCard
+          icon="upload"
+          title="Importer une photo"
+          sub="Une photo déjà prise"
+          onClick={onImportSingle}
+        />
+        <MethodCard
+          icon="layers"
+          title="Import en masse"
+          sub="Plusieurs photos, tu les ranges après"
+          tone="ghost"
+          onClick={onImportBulk}
+        />
+      </div>
+
+      <div
+        style={{
+          marginTop: 22,
+          padding: 14,
+          background: 'var(--primary-50)',
+          border: '1px solid var(--primary-100)',
+          borderRadius: 14,
+          display: 'flex',
+          gap: 12,
+        }}
+      >
+        <IconTile icon="sparkle" />
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--primary-700)', marginBottom: 4 }}>
+            3 conseils pour un suivi fiable
+          </div>
+          <ul
+            style={{
+              margin: 0,
+              padding: 0,
+              listStyle: 'none',
+              fontSize: 12,
+              color: 'var(--ink-2)',
+              lineHeight: '18px',
+            }}
+          >
+            <Tip>Lumière naturelle, sans flash direct</Tip>
+            <Tip>Cadrage à 10 cm, mise au point sur le grain</Tip>
+            <Tip>Pose une pièce ou une règle à côté pour l'échelle</Tip>
+          </ul>
+        </div>
+      </div>
+    </>
+  )
+}
+
+function Tip({ children }: { children: React.ReactNode }) {
+  return (
+    <li style={{ display: 'flex', gap: 8, marginBottom: 2 }}>
+      <span style={{ color: 'var(--primary)' }}>·</span>
+      <span>{children}</span>
+    </li>
+  )
+}
+
+function MethodCard({
+  icon,
+  title,
+  sub,
+  primary,
+  tone,
+  onClick,
+}: {
+  icon: IconName
+  title: string
+  sub: string
+  primary?: boolean
+  tone?: 'ghost'
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="focus-ring"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 14,
+        padding: '14px 14px',
+        background: primary ? 'var(--primary)' : tone === 'ghost' ? 'transparent' : 'var(--surface)',
+        border: primary
+          ? '0'
+          : tone === 'ghost'
+            ? '1px dashed var(--hairline)'
+            : '1px solid var(--hairline)',
+        borderRadius: 14,
+        color: primary ? '#fff' : 'var(--ink)',
+        boxShadow: primary ? '0 8px 20px -8px rgba(0, 102, 224, 0.5)' : 'none',
+        textAlign: 'left',
+        width: '100%',
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 12,
+          background: primary ? 'rgba(255,255,255,0.18)' : 'var(--surface-3)',
+          color: primary ? '#fff' : 'var(--ink-2)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <Icon name={icon} size={20} />
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.005em' }}>{title}</div>
+        <div
+          style={{
+            fontSize: 12,
+            marginTop: 2,
+            opacity: primary ? 0.85 : 1,
+            color: primary ? '#fff' : 'var(--muted)',
+          }}
+        >
+          {sub}
+        </div>
+      </div>
+      <Icon name="chevR" size={16} />
+    </button>
+  )
+}
+
+function ReviewStep({
+  previewUrl,
+  zone,
+  note,
+  onNote,
+  onOpenZone,
+  error,
+}: {
+  previewUrl: string | null
+  zone: string
+  note: string
+  onNote: (v: string) => void
+  onOpenZone: () => void
+  error: string | null
+}) {
+  return (
+    <div>
+      {/* Photo preview */}
+      {previewUrl && (
+        <div
+          style={{
+            position: 'relative',
+            marginBottom: 16,
+            borderRadius: 16,
+            overflow: 'hidden',
+            background: '#000',
+            aspectRatio: '4 / 3',
+          }}
+        >
+          <img
+            src={previewUrl}
+            alt="Aperçu de la photo à enregistrer"
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+          />
+        </div>
+      )}
+
+      <Field label="Zone du corps" required>
+        <button
+          onClick={onOpenZone}
+          className="focus-ring"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            width: '100%',
+            padding: '12px 14px',
+            background: 'var(--surface)',
+            border: zone ? '1px solid var(--hairline)' : '1px solid var(--primary-200)',
+            borderRadius: 12,
+            textAlign: 'left',
+          }}
+        >
+          <Icon name="pin" size={18} stroke="var(--primary)" fill="var(--primary-50)" />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {zone ? (
+              <>
+                <div style={{ fontSize: 14, fontWeight: 550, color: 'var(--ink)' }}>{zoneLabel(zone)}</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)' }}>Touche pour changer</div>
+              </>
+            ) : (
+              <div style={{ fontSize: 14, fontWeight: 550, color: 'var(--primary-700)' }}>
+                Choisir une zone
+              </div>
+            )}
+          </div>
+          <span style={{ fontSize: 12, color: 'var(--primary)', fontWeight: 600 }}>
+            {zone ? 'Changer' : 'Choisir'}
+          </span>
+        </button>
+      </Field>
+
+      <Field
+        label="Note"
+        hint={
+          <>
+            <Icon name="lock" size={10} /> Chiffrée — visible uniquement par toi
+          </>
+        }
+      >
+        <textarea
+          rows={3}
+          placeholder="Ex : grain de beauté côté externe, contour foncé"
+          value={note}
+          onChange={e => onNote(e.target.value)}
+          className="focus-ring"
+          style={{
+            width: '100%',
+            padding: '12px 14px',
+            background: 'var(--surface)',
+            border: '1px solid var(--hairline)',
+            borderRadius: 12,
+            resize: 'none',
+            fontSize: 14,
+            color: 'var(--ink)',
+            outline: 'none',
+            fontFamily: 'inherit',
+          }}
+        />
+      </Field>
+
+      {error && (
+        <div
+          role="alert"
+          style={{
+            padding: '10px 12px',
+            borderRadius: 12,
+            background: 'var(--danger-50)',
+            color: 'var(--danger-700)',
+            fontSize: 13,
+            fontWeight: 500,
+          }}
+        >
+          {error}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ============================================================
+   Zone picker bottom sheet
+   ============================================================ */
+
+function ZonePicker({
+  value,
+  onPick,
+  onClose,
+}: {
+  value: string
+  onPick: (zoneId: string) => void
+  onClose: () => void
+}) {
+  const groups: { label: string; zones: typeof BODY_ZONES }[] = [
+    { label: 'Face', zones: BODY_ZONES.filter(z => z.side === 'front') },
+    { label: 'Dos', zones: BODY_ZONES.filter(z => z.side === 'back') },
+    { label: 'Côtés', zones: BODY_ZONES.filter(z => z.side === 'left' || z.side === 'right') },
+  ]
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 50,
+        background: 'rgba(11,20,36,0.45)',
+        display: 'flex',
+        alignItems: 'flex-end',
+        justifyContent: 'center',
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: '100%',
+          maxWidth: 640,
+          background: 'var(--surface)',
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+          padding: '14px 18px 24px',
+          maxHeight: '80vh',
+          overflowY: 'auto',
+          boxShadow: 'var(--e3)',
+        }}
+      >
+        <div
+          style={{
+            width: 36,
+            height: 4,
+            borderRadius: 999,
+            background: 'var(--hairline)',
+            margin: '0 auto 14px',
+          }}
+        />
+        <h3
+          style={{
+            margin: 0,
+            fontSize: 18,
+            fontWeight: 600,
+            color: 'var(--ink)',
+            letterSpacing: '-0.01em',
+          }}
+        >
+          Choisir une zone
+        </h3>
+        <p style={{ margin: '4px 0 14px', fontSize: 12, color: 'var(--muted)' }}>
+          Où se trouve ce grain de beauté&nbsp;?
+        </p>
+
+        {groups.map(g => (
+          <div key={g.label} style={{ marginBottom: 18 }}>
+            <div
+              style={{
+                fontSize: 11,
+                color: 'var(--muted-2)',
+                fontWeight: 600,
+                letterSpacing: '0.04em',
+                textTransform: 'uppercase',
+                marginBottom: 8,
+              }}
+            >
+              {g.label}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              {g.zones.map(z => {
+                const active = value === z.id
+                return (
+                  <button
+                    key={z.id}
+                    onClick={() => onPick(z.id)}
+                    className="focus-ring"
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: 12,
+                      background: active ? 'var(--primary-50)' : 'var(--surface)',
+                      border: active ? '1px solid var(--primary-200)' : '1px solid var(--hairline)',
+                      color: active ? 'var(--primary-700)' : 'var(--ink)',
+                      fontSize: 13,
+                      fontWeight: 550,
+                      textAlign: 'left',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <Icon
+                      name={active ? 'check' : 'pin'}
+                      size={14}
+                      stroke={active ? 'var(--primary-700)' : 'var(--muted-2)'}
+                    />
+                    <span>{z.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

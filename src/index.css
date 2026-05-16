@@ -1,27 +1,158 @@
 @import 'tailwindcss';
 
-@theme {
-  --color-bg: #0b1220;
-  --color-panel: #131c2e;
-  --color-accent: #6366f1;
+/* ============================================================
+   Nævus — Design system tokens
+   Light theme · medical blue accent · warm-cool neutrals
+   ============================================================ */
+
+:root {
+  /* — Surfaces — */
+  --canvas:        #eef2f7;
+  --bg:            #f5f7fb;
+  --surface:       #ffffff;
+  --surface-2:     #f8fafc;
+  --surface-3:     #f1f4f9;
+  --hairline:      #e4e8ef;
+  --hairline-2:    #eef1f6;
+  --overlay:       rgba(11, 20, 36, 0.55);
+
+  /* — Text — */
+  --ink:           #0b1424;
+  --ink-2:         #2c3445;
+  --muted:         #5a6478;
+  --muted-2:       #8b93a4;
+  --faint:         #b3bbc9;
+  --on-primary:    #ffffff;
+
+  /* — Primary (medical blue) — */
+  --primary:       #0066e0;
+  --primary-700:   #0052b8;
+  --primary-600:   #005bc9;
+  --primary-200:   #b6d2f7;
+  --primary-100:   #dbe9fb;
+  --primary-50:    #ecf3fd;
+  --primary-tint:  rgba(0, 102, 224, 0.08);
+
+  /* — Status — */
+  --success:       #1f8a5a;
+  --success-700:   #156b46;
+  --success-50:    #e6f5ee;
+  --warning:       #b97a16;
+  --warning-700:   #8d5c0e;
+  --warning-50:    #fbf2dc;
+  --danger:        #c44a4a;
+  --danger-700:    #9a3636;
+  --danger-50:     #fbeaea;
+  --info:          var(--primary);
+  --info-50:       var(--primary-50);
+
+  /* — Skin tones (placeholder palette, kept for parity) — */
+  --skin-1: #f3d2b3;
+  --skin-2: #e7b189;
+  --skin-3: #c98c66;
+  --skin-4: #a06a4a;
+  --skin-5: #6e4530;
+  --mole-1: #6b3a26;
+  --mole-2: #44231a;
+
+  /* — Type — */
+  --sans: "Geist", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --mono: "Geist Mono", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* — Radius — */
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --r-2xl: 24px;
+  --r-pill: 999px;
+
+  /* — Shadow — */
+  --e0: 0 0 0 1px rgba(11, 20, 36, 0.04);
+  --e1: 0 1px 2px rgba(11, 20, 36, 0.04), 0 0 0 1px rgba(11, 20, 36, 0.04);
+  --e2: 0 4px 14px -4px rgba(11, 20, 36, 0.10), 0 0 0 1px rgba(11, 20, 36, 0.04);
+  --e3: 0 12px 32px -8px rgba(11, 20, 36, 0.14), 0 0 0 1px rgba(11, 20, 36, 0.04);
+  --e-focus: 0 0 0 3px rgba(0, 102, 224, 0.22);
+
+  /* — Motion — */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --t-fast: 120ms;
+  --t-med: 200ms;
+  --t-slow: 320ms;
 }
+
+/* Tailwind theme bridge — exposes Nævus tokens to Tailwind v4 utilities. */
+@theme {
+  --color-bg: #f5f7fb;
+  --color-surface: #ffffff;
+  --color-ink: #0b1424;
+  --color-primary: #0066e0;
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+
+* { box-sizing: border-box; }
 
 html, body, #root {
   height: 100%;
   margin: 0;
-  background: var(--color-bg);
-  color: #e2e8f0;
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
   -webkit-tap-highlight-color: transparent;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--sans);
 }
 
-* { box-sizing: border-box; }
-
-input, button, textarea {
+input, button, textarea, select {
   font-family: inherit;
+  color: inherit;
 }
+
+button { cursor: pointer; }
+
+::selection { background: var(--primary-100); color: var(--ink); }
+
+/* ============================================================
+   Type scale (utility classes from the design system)
+   ============================================================ */
+
+.t-display { font-size: 32px; line-height: 38px; font-weight: 600; letter-spacing: -0.02em; }
+.t-h1      { font-size: 24px; line-height: 30px; font-weight: 600; letter-spacing: -0.015em; }
+.t-h2      { font-size: 19px; line-height: 25px; font-weight: 600; letter-spacing: -0.01em; }
+.t-h3      { font-size: 16px; line-height: 22px; font-weight: 600; letter-spacing: -0.005em; }
+.t-body    { font-size: 15px; line-height: 22px; font-weight: 450; }
+.t-body-sm { font-size: 14px; line-height: 20px; font-weight: 450; }
+.t-cap     { font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.01em; }
+.t-micro   { font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; }
+.t-mono    { font-family: var(--mono); font-size: 13px; line-height: 18px; font-weight: 450; }
+.t-mono-sm { font-family: var(--mono); font-size: 11px; line-height: 14px; font-weight: 450; letter-spacing: -0.01em; }
+
+.ink   { color: var(--ink); }
+.muted { color: var(--muted); }
+.muted-2 { color: var(--muted-2); }
+.faint { color: var(--faint); }
+
+/* Utilities */
+
+.divider      { height: 1px; background: var(--hairline); border: 0; }
+.divider-soft { height: 1px; background: var(--hairline-2); border: 0; }
 
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; }
 
-button { cursor: pointer; }
+/* Focus ring used by interactive primitives. */
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: var(--e-focus);
+}
+
+/* Skeleton pulse — referenced by PhotoThumb while it decrypts. */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { PhotoRow } from '../lib/supabase'
 import {
   countDuplicateExtras,
@@ -9,8 +9,21 @@ import {
 } from '../lib/photos'
 import { BODY_ZONES, zoneLabel } from '../lib/bodyZones'
 import PhotoThumb from '../components/PhotoThumb'
+import {
+  Button,
+  FilterChip,
+  Icon,
+  IconButton,
+  IconTile,
+  SectionLabel,
+  TopBar,
+  fmtDateShort,
+} from '../components/ui'
 
 type Editing = 'none' | 'date' | 'zone'
+
+const WEEK_MS = 7 * 86_400_000
+const MONTH_MS = 30 * 86_400_000
 
 export default function AllPhotosPage() {
   const [photos, setPhotos] = useState<PhotoRow[] | null>(null)
@@ -21,10 +34,8 @@ export default function AllPhotosPage() {
   const [zoneDraft, setZoneDraft] = useState('')
   const [saving, setSaving] = useState<{ done: number; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // Discreet banner that surfaces the duplicate cleanup tool when there's
-  // something to clean up. We re-fetch alongside the photo list so the count
-  // stays in sync after the user deletes duplicates from /duplicates.
   const [dupCount, setDupCount] = useState(0)
+  const [zoneFilter, setZoneFilter] = useState<string>('all')
   const nav = useNavigate()
 
   function reload() {
@@ -33,7 +44,9 @@ export default function AllPhotosPage() {
       countDuplicateExtras().then(setDupCount).catch(() => {}),
     ])
   }
-  useEffect(() => { void reload() }, [])
+  useEffect(() => {
+    void reload()
+  }, [])
 
   function toggle(id: string) {
     setSelected(prev => {
@@ -60,11 +73,12 @@ export default function AllPhotosPage() {
 
   function openDateEditor() {
     if (!photos || selected.size === 0) return
-    // Pre-fill with the most recent selected photo's date so the picker has
-    // a sensible starting point.
     const picked = photos.filter(p => selected.has(p.id))
-    const newest = picked.reduce((acc, p) =>
-      !acc || new Date(p.taken_at) > new Date(acc.taken_at) ? p : acc, null as PhotoRow | null)
+    const newest = picked.reduce(
+      (acc, p) =>
+        !acc || new Date(p.taken_at) > new Date(acc.taken_at) ? p : acc,
+      null as PhotoRow | null,
+    )
     const d = newest ? new Date(newest.taken_at) : new Date()
     const yyyy = d.getFullYear()
     const mm = String(d.getMonth() + 1).padStart(2, '0')
@@ -76,7 +90,6 @@ export default function AllPhotosPage() {
 
   function openZoneEditor() {
     if (!photos || selected.size === 0) return
-    // Pre-fill with the common zone if all selected share one, else empty.
     const picked = photos.filter(p => selected.has(p.id))
     const zones = new Set(picked.map(p => p.body_zone))
     setZoneDraft(zones.size === 1 ? [...zones][0] : '')
@@ -88,7 +101,6 @@ export default function AllPhotosPage() {
     if (!dateDraft || saving) return
     const [y, m, d] = dateDraft.split('-').map(Number)
     if (!y || !m || !d) return
-    // Anchor to noon local so timezone shifts don't bump the day.
     const next = new Date(y, m - 1, d, 12, 0, 0, 0)
     const ids = [...selected]
     setSaving({ done: 0, total: ids.length })
@@ -102,7 +114,6 @@ export default function AllPhotosPage() {
       exitSelection()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
-      // Refresh anyway so successful updates are visible.
       void reload()
     } finally {
       setSaving(null)
@@ -130,198 +141,518 @@ export default function AllPhotosPage() {
     }
   }
 
+  /* Group photos into "Cette semaine / Ce mois-ci / Plus ancien" buckets. */
+  const grouped = useMemo(() => {
+    if (!photos) return null
+    const filtered = zoneFilter === 'all' ? photos : photos.filter(p => p.body_zone === zoneFilter)
+    const now = Date.now()
+    const week: PhotoRow[] = []
+    const month: PhotoRow[] = []
+    const older: PhotoRow[] = []
+    for (const p of filtered) {
+      const age = now - +new Date(p.taken_at)
+      if (age <= WEEK_MS) week.push(p)
+      else if (age <= MONTH_MS) month.push(p)
+      else older.push(p)
+    }
+    return { week, month, older, total: filtered.length }
+  }, [photos, zoneFilter])
+
+  /* Top zones (by photo count) for the filter chips. */
+  const topZones = useMemo(() => {
+    if (!photos) return []
+    const counts = new Map<string, number>()
+    for (const p of photos) counts.set(p.body_zone, (counts.get(p.body_zone) ?? 0) + 1)
+    return [...counts.entries()]
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 6)
+      .map(([id, n]) => ({ id, n }))
+  }, [photos])
+
   return (
-    <div className="px-4 py-4 pb-32">
-      <div className="mb-3 flex items-center gap-2">
-        <h2 className="flex-1 text-lg font-semibold text-slate-100">Toutes mes photos</h2>
-        {photos && photos.length > 0 && (
+    <div style={{ paddingBottom: selecting ? 200 : 100 }}>
+      <TopBar
+        title="Toutes mes photos"
+        sub={
+          photos
+            ? `${photos.length} photo${photos.length > 1 ? 's' : ''} · ${new Set(photos.map(p => p.body_zone)).size} zone${new Set(photos.map(p => p.body_zone)).size > 1 ? 's' : ''}`
+            : ''
+        }
+        left={<IconButton icon="back" label="Retour" to="/" />}
+        right={
+          photos && photos.length > 0 ? (
+            <button
+              onClick={() => (selecting ? exitSelection() : setSelecting(true))}
+              disabled={!!saving}
+              className="focus-ring"
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: selecting ? 'var(--muted)' : 'var(--primary)',
+                background: 'transparent',
+                border: 0,
+                padding: '6px 8px',
+              }}
+            >
+              {selecting ? 'Annuler' : 'Sélectionner'}
+            </button>
+          ) : null
+        }
+      />
+
+      <div style={{ padding: '8px 18px 0' }}>
+        {dupCount > 0 && !selecting && (
           <button
-            onClick={() => (selecting ? exitSelection() : setSelecting(true))}
-            className="rounded-md bg-slate-800 px-3 py-1 text-xs text-slate-200"
-            disabled={!!saving}
+            onClick={() => nav('/duplicates')}
+            className="focus-ring"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '10px 12px',
+              marginBottom: 12,
+              background: 'var(--warning-50)',
+              border: '1px solid #f1dba0',
+              borderRadius: 12,
+              width: '100%',
+              textAlign: 'left',
+            }}
           >
-            {selecting ? 'Annuler' : 'Sélectionner'}
+            <IconTile icon="layers" tone="warning" size={28} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--warning-700)' }}>
+                {dupCount} doublon{dupCount > 1 ? 's' : ''} à gérer
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--ink-2)' }}>
+                Photos en double détectées automatiquement
+              </div>
+            </div>
+            <span style={{ fontSize: 12, color: 'var(--warning-700)', fontWeight: 600 }}>
+              Nettoyer →
+            </span>
           </button>
+        )}
+
+        {photos && photos.length > 0 && (
+          <div
+            className="no-scrollbar"
+            style={{
+              display: 'flex',
+              gap: 6,
+              marginBottom: 10,
+              overflowX: 'auto',
+              paddingBottom: 4,
+            }}
+          >
+            <FilterChip active={zoneFilter === 'all'} onClick={() => setZoneFilter('all')}>
+              Toutes
+            </FilterChip>
+            {topZones.map(z => (
+              <FilterChip
+                key={z.id}
+                active={zoneFilter === z.id}
+                onClick={() => setZoneFilter(z.id)}
+              >
+                {zoneLabel(z.id)}{' '}
+                <span style={{ color: zoneFilter === z.id ? 'rgba(255,255,255,0.7)' : 'var(--muted-2)' }}>
+                  · {z.n}
+                </span>
+              </FilterChip>
+            ))}
+          </div>
+        )}
+
+        {selecting && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 8,
+            }}
+          >
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{selected.size}</strong> /{' '}
+              {photos?.length ?? 0} sélectionnée{selected.size > 1 ? 's' : ''}
+            </div>
+            <div style={{ display: 'inline-flex', gap: 4 }}>
+              <SmallTextBtn onClick={selectAll} disabled={!!saving}>
+                Tout
+              </SmallTextBtn>
+              <SmallTextBtn onClick={() => setSelected(new Set())} disabled={!!saving}>
+                Aucune
+              </SmallTextBtn>
+            </div>
+          </div>
+        )}
+
+        {!photos ? (
+          <p style={{ fontSize: 14, color: 'var(--muted)' }}>Chargement…</p>
+        ) : photos.length === 0 ? (
+          <EmptyAll onAdd={() => nav('/add')} />
+        ) : grouped && grouped.total === 0 ? (
+          <p style={{ fontSize: 14, color: 'var(--muted)' }}>
+            Aucune photo pour ce filtre.
+          </p>
+        ) : (
+          <>
+            {grouped!.week.length > 0 && (
+              <>
+                <SectionLabel>Cette semaine · {grouped!.week.length}</SectionLabel>
+                <Grid
+                  photos={grouped!.week}
+                  selecting={selecting}
+                  selected={selected}
+                  onClick={p => (selecting ? toggle(p.id) : nav(`/photo/${p.id}`))}
+                  disabled={!!saving}
+                />
+              </>
+            )}
+            {grouped!.month.length > 0 && (
+              <>
+                <SectionLabel>Ce mois-ci · {grouped!.month.length}</SectionLabel>
+                <Grid
+                  photos={grouped!.month}
+                  selecting={selecting}
+                  selected={selected}
+                  onClick={p => (selecting ? toggle(p.id) : nav(`/photo/${p.id}`))}
+                  disabled={!!saving}
+                />
+              </>
+            )}
+            {grouped!.older.length > 0 && (
+              <>
+                <SectionLabel>Plus ancien · {grouped!.older.length}</SectionLabel>
+                <Grid
+                  photos={grouped!.older}
+                  selecting={selecting}
+                  selected={selected}
+                  onClick={p => (selecting ? toggle(p.id) : nav(`/photo/${p.id}`))}
+                  disabled={!!saving}
+                />
+              </>
+            )}
+          </>
         )}
       </div>
 
-      {dupCount > 0 && !selecting && (
-        <Link
-          to="/duplicates"
-          className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-amber-700/40 bg-amber-900/20 px-3 py-2 text-sm text-amber-100 hover:bg-amber-900/30"
+      {selecting && photos && photos.length > 0 && (
+        <div
+          style={{
+            position: 'fixed',
+            left: '50%',
+            bottom: 80,
+            transform: 'translateX(-50%)',
+            width: '100%',
+            maxWidth: 640,
+            padding: '12px 18px',
+            zIndex: 4,
+            background: 'linear-gradient(to top, var(--bg) 60%, rgba(245,247,251,0))',
+          }}
         >
-          <span className="flex items-center gap-2">
-            <span className="text-base">🗂️</span>
-            <span>
-              <strong>{dupCount}</strong> doublon{dupCount > 1 ? 's' : ''} à
-              gérer
-            </span>
-          </span>
-          <span className="text-xs text-amber-300/80">Nettoyer →</span>
-        </Link>
-      )}
-
-      {!photos ? (
-        <p className="text-sm text-slate-400">Chargement…</p>
-      ) : photos.length === 0 ? (
-        <p className="text-sm text-slate-400">Aucune photo pour le moment.</p>
-      ) : (
-        <>
-          {selecting && (
-            <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
-              <span>{selected.size} / {photos.length} sélectionnée{selected.size > 1 ? 's' : ''}</span>
-              <div className="flex gap-2">
-                <button
-                  onClick={selectAll}
-                  className="rounded px-2 py-0.5 text-slate-300 hover:bg-slate-800"
-                  disabled={!!saving}
-                >
-                  Tout
-                </button>
-                <button
-                  onClick={() => setSelected(new Set())}
-                  className="rounded px-2 py-0.5 text-slate-300 hover:bg-slate-800"
-                  disabled={!!saving}
-                >
-                  Aucune
-                </button>
-              </div>
+          {error && (
+            <div
+              role="alert"
+              style={{
+                marginBottom: 10,
+                padding: '10px 12px',
+                borderRadius: 12,
+                background: 'var(--danger-50)',
+                color: 'var(--danger-700)',
+                fontSize: 13,
+                fontWeight: 500,
+              }}
+            >
+              {error}
             </div>
           )}
-
-          <div className="grid grid-cols-3 gap-1">
-            {photos.map(p => {
-              const isSel = selected.has(p.id)
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => (selecting ? toggle(p.id) : nav(`/photo/${p.id}`))}
-                  disabled={!!saving}
-                  className={`relative aspect-square overflow-hidden rounded-md ${
-                    selecting && isSel ? 'ring-2 ring-indigo-400' : ''
-                  }`}
-                >
-                  <PhotoThumb photo={p} className="h-full w-full object-cover" />
-                  <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] text-white">
-                    {zoneLabel(p.body_zone)}
-                  </span>
-                  <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[10px] text-white">
-                    {new Date(p.taken_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' })}
-                  </span>
-                  {selecting && isSel && (
-                    <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-500 text-[10px] font-bold text-white">
-                      ✓
-                    </span>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        </>
-      )}
-
-      {selecting && photos && photos.length > 0 && (
-        <div className="fixed bottom-20 left-1/2 z-20 w-full max-w-screen-sm -translate-x-1/2 px-4">
-          {error && (
-            <p className="mb-2 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">{error}</p>
-          )}
-          <div className="rounded-2xl bg-slate-900/95 p-3 shadow-lg ring-1 ring-slate-700/60 backdrop-blur">
+          <div
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--hairline)',
+              borderRadius: 16,
+              padding: 12,
+              boxShadow: 'var(--e2)',
+            }}
+          >
             {editing === 'none' && (
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <p className="flex-1 text-xs text-slate-400">
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}
+              >
+                <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
                   {selected.size === 0
                     ? 'Sélectionne des photos pour les modifier.'
-                    : `${selected.size} photo${selected.size > 1 ? 's' : ''} sélectionnée${selected.size > 1 ? 's' : ''}`}
+                    : `${selected.size} photo${selected.size > 1 ? 's' : ''} prête${selected.size > 1 ? 's' : ''} à modifier`}
                 </p>
-                <div className="flex gap-2">
-                  <button
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button
+                    variant="secondary"
+                    icon="calendar"
                     onClick={openDateEditor}
                     disabled={selected.size === 0}
-                    className="flex-1 rounded-xl bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 disabled:opacity-40 sm:flex-none"
+                    style={{ flex: 1 }}
                   >
-                    📅 Date
-                  </button>
-                  <button
+                    Date
+                  </Button>
+                  <Button
+                    variant="primary"
+                    icon="pin"
                     onClick={openZoneEditor}
                     disabled={selected.size === 0}
-                    className="flex-1 rounded-xl bg-indigo-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-40 sm:flex-none"
+                    style={{ flex: 1 }}
                   >
-                    📍 Déplacer
-                  </button>
+                    Déplacer
+                  </Button>
                 </div>
               </div>
             )}
 
             {editing === 'date' && (
               <div>
-                <p className="mb-2 text-xs text-slate-400">
+                <p style={{ marginTop: 0, marginBottom: 8, fontSize: 12, color: 'var(--muted)' }}>
                   Nouvelle date pour {selected.size} photo{selected.size > 1 ? 's' : ''}
                   {saving ? ` · ${saving.done}/${saving.total}` : ''}
                 </p>
-                <div className="flex flex-wrap items-center gap-2">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   <input
                     type="date"
                     value={dateDraft}
                     onChange={e => setDateDraft(e.target.value)}
-                    className="flex-1 min-w-[140px] rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
                     disabled={!!saving}
+                    className="focus-ring"
+                    style={{
+                      flex: 1,
+                      minWidth: 140,
+                      padding: '10px 12px',
+                      background: 'var(--surface)',
+                      border: '1px solid var(--hairline)',
+                      borderRadius: 10,
+                      fontSize: 13,
+                      color: 'var(--ink)',
+                    }}
                   />
-                  <button
+                  <Button
+                    variant="primary"
+                    size="sm"
                     onClick={() => void applyDate()}
-                    disabled={!dateDraft || !!saving}
-                    className="rounded-md bg-indigo-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+                    loading={!!saving}
+                    disabled={!dateDraft}
                   >
                     {saving ? 'Enregistrement…' : 'Appliquer'}
-                  </button>
-                  <button
-                    onClick={() => setEditing('none')}
-                    disabled={!!saving}
-                    className="rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-200"
-                  >
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => setEditing('none')} disabled={!!saving}>
                     Retour
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
 
             {editing === 'zone' && (
               <div>
-                <p className="mb-2 text-xs text-slate-400">
+                <p style={{ marginTop: 0, marginBottom: 8, fontSize: 12, color: 'var(--muted)' }}>
                   Déplacer {selected.size} photo{selected.size > 1 ? 's' : ''} vers…
                   {saving ? ` · ${saving.done}/${saving.total}` : ''}
                 </p>
-                <div className="flex flex-wrap items-center gap-2">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   <select
                     value={zoneDraft}
                     onChange={e => setZoneDraft(e.target.value)}
-                    className="flex-1 min-w-[160px] rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
                     disabled={!!saving}
+                    className="focus-ring"
+                    style={{
+                      flex: 1,
+                      minWidth: 160,
+                      padding: '10px 12px',
+                      background: 'var(--surface)',
+                      border: '1px solid var(--hairline)',
+                      borderRadius: 10,
+                      fontSize: 13,
+                      color: 'var(--ink)',
+                    }}
                   >
                     <option value="">— Choisir une zone —</option>
                     {BODY_ZONES.map(z => (
-                      <option key={z.id} value={z.id}>{z.label}</option>
+                      <option key={z.id} value={z.id}>
+                        {z.label}
+                      </option>
                     ))}
                   </select>
-                  <button
+                  <Button
+                    variant="primary"
+                    size="sm"
                     onClick={() => void applyZone()}
-                    disabled={!zoneDraft || !!saving}
-                    className="rounded-md bg-indigo-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+                    loading={!!saving}
+                    disabled={!zoneDraft}
                   >
                     {saving ? 'Déplacement…' : 'Déplacer'}
-                  </button>
-                  <button
-                    onClick={() => setEditing('none')}
-                    disabled={!!saving}
-                    className="rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-200"
-                  >
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => setEditing('none')} disabled={!!saving}>
                     Retour
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function Grid({
+  photos,
+  selecting,
+  selected,
+  onClick,
+  disabled,
+}: {
+  photos: PhotoRow[]
+  selecting: boolean
+  selected: Set<string>
+  onClick: (p: PhotoRow) => void
+  disabled: boolean
+}) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, marginBottom: 4 }}>
+      {photos.map(p => {
+        const isSel = selected.has(p.id)
+        return (
+          <button
+            key={p.id}
+            onClick={() => onClick(p)}
+            disabled={disabled}
+            className="focus-ring"
+            style={{
+              position: 'relative',
+              aspectRatio: '1 / 1',
+              borderRadius: 8,
+              overflow: 'hidden',
+              padding: 0,
+              border: selecting && isSel ? '2.5px solid var(--primary)' : '1px solid transparent',
+              boxShadow: selecting && isSel ? '0 0 0 3px var(--primary-50)' : 'none',
+              background: 'var(--surface-3)',
+            }}
+          >
+            <PhotoThumb photo={p} className="h-full w-full object-cover" />
+            <span
+              style={{
+                position: 'absolute',
+                left: 4,
+                bottom: 4,
+                padding: '1px 5px',
+                borderRadius: 4,
+                background: 'rgba(11,20,36,0.55)',
+                color: '#fff',
+                fontFamily: 'var(--mono)',
+                fontSize: 9,
+                backdropFilter: 'blur(6px)',
+                WebkitBackdropFilter: 'blur(6px)',
+                maxWidth: 'calc(100% - 36px)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {zoneLabel(p.body_zone)}
+            </span>
+            <span
+              style={{
+                position: 'absolute',
+                right: 4,
+                bottom: 4,
+                padding: '1px 5px',
+                borderRadius: 4,
+                background: 'rgba(11,20,36,0.55)',
+                color: '#fff',
+                fontFamily: 'var(--mono)',
+                fontSize: 9,
+                backdropFilter: 'blur(6px)',
+                WebkitBackdropFilter: 'blur(6px)',
+              }}
+            >
+              {fmtDateShort(p.taken_at)}
+            </span>
+            {selecting && isSel && (
+              <span
+                style={{
+                  position: 'absolute',
+                  right: 4,
+                  top: 4,
+                  width: 20,
+                  height: 20,
+                  borderRadius: 999,
+                  background: 'var(--primary)',
+                  color: '#fff',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Icon name="check" size={12} stroke="#fff" strokeWidth={2.5} />
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function SmallTextBtn({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode
+  onClick: () => void
+  disabled?: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="focus-ring"
+      style={{
+        padding: '4px 10px',
+        borderRadius: 8,
+        fontSize: 12,
+        color: 'var(--ink-2)',
+        fontWeight: 550,
+        background: 'var(--surface)',
+        border: '1px solid var(--hairline)',
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+function EmptyAll({ onAdd }: { onAdd: () => void }) {
+  return (
+    <div
+      style={{
+        padding: 24,
+        background: 'var(--surface)',
+        border: '1px dashed var(--hairline)',
+        borderRadius: 16,
+        textAlign: 'center',
+        marginTop: 12,
+      }}
+    >
+      <IconTile icon="grid" size={40} />
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', marginTop: 10 }}>
+        Aucune photo pour le moment
+      </div>
+      <p style={{ margin: '4px 0 14px', fontSize: 12, color: 'var(--muted)' }}>
+        Ajoute ta première photo pour démarrer le suivi.
+      </p>
+      <Button variant="primary" icon="plus" onClick={onAdd}>
+        Ajouter
+      </Button>
     </div>
   )
 }

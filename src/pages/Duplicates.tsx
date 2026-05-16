@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import {
   deletePhoto,
   listDuplicateGroups,
@@ -8,43 +8,23 @@ import {
 import type { PhotoRow } from '../lib/supabase'
 import PhotoThumb from '../components/PhotoThumb'
 import { zoneLabel } from '../lib/bodyZones'
-
-/**
- * Duplicates manager.
- *
- * Groups every saved photo by `content_hash` and surfaces groups with ≥ 2
- * photos. The UX is intentionally focused on the one job the user has here:
- * pick which copy to keep, delete the rest. Per-group there are two paths:
- *
- *   - quick "Garder la 1ʳᵉ" button — keeps the oldest (group is pre-sorted
- *     oldest-first, which is usually the original) and deletes the rest;
- *   - manual selection — tap any photo to toggle "to delete" then confirm.
- *
- * No mock data, no localStorage — every action hits the live `photos` table
- * via deletePhoto(). After each batch we reload from the server so the page
- * always reflects the current truth.
- */
-
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('fr-FR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
-  })
-}
+import {
+  Button,
+  Icon,
+  IconButton,
+  IconTile,
+  TopBar,
+  fmtDate,
+} from '../components/ui'
 
 function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('fr-FR', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 }
 
 export default function DuplicatesPage() {
   const [groups, setGroups] = useState<DuplicateGroup[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // Photos the user has marked for deletion, keyed by group hash so a manual
-  // selection in one group doesn't bleed into another.
+  // Marks photos for deletion, keyed by group content hash.
   const [marked, setMarked] = useState<Map<string, Set<string>>>(new Map())
   const [working, setWorking] = useState<{
     groupHash: string
@@ -58,8 +38,6 @@ export default function DuplicatesPage() {
     return listDuplicateGroups()
       .then(g => {
         setGroups(g)
-        // Drop any "marked" state pointing at photos that no longer exist —
-        // prevents zombie selections after a deletion succeeds.
         setMarked(prev => {
           const next = new Map<string, Set<string>>()
           for (const grp of g) {
@@ -96,7 +74,6 @@ export default function DuplicatesPage() {
     })
   }
 
-  /** Mark every photo in the group except the oldest (= keep oldest). */
   function markAllButFirst(group: DuplicateGroup) {
     setMarked(prev => {
       const next = new Map(prev)
@@ -117,11 +94,8 @@ export default function DuplicatesPage() {
   async function deleteMarked(group: DuplicateGroup) {
     const ids = marked.get(group.contentHash)
     if (!ids || ids.size === 0) return
-    // Safety: never let the user wipe an entire group with one click.
     if (ids.size === group.photos.length) {
-      setError(
-        'Tu as sélectionné toutes les copies du groupe. Garde-en au moins une.',
-      )
+      setError('Tu as sélectionné toutes les copies du groupe. Garde-en au moins une.')
       return
     }
     const toDelete = group.photos.filter(p => ids.has(p.id))
@@ -134,16 +108,11 @@ export default function DuplicatesPage() {
     try {
       for (let i = 0; i < toDelete.length; i++) {
         await deletePhoto(toDelete[i])
-        setWorking({
-          groupHash: group.contentHash,
-          done: i + 1,
-          total: toDelete.length,
-        })
+        setWorking({ groupHash: group.contentHash, done: i + 1, total: toDelete.length })
       }
       await reload()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
-      // Reload anyway so successful deletions show up.
       void reload()
     } finally {
       setWorking(null)
@@ -161,11 +130,7 @@ export default function DuplicatesPage() {
     try {
       for (let i = 0; i < toDelete.length; i++) {
         await deletePhoto(toDelete[i])
-        setWorking({
-          groupHash: group.contentHash,
-          done: i + 1,
-          total: toDelete.length,
-        })
+        setWorking({ groupHash: group.contentHash, done: i + 1, total: toDelete.length })
       }
       await reload()
     } catch (e) {
@@ -177,80 +142,149 @@ export default function DuplicatesPage() {
   }
 
   return (
-    <div className="px-4 py-4 pb-24">
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold text-slate-100">Doublons</h2>
-        <p className="mt-1 text-sm text-slate-400">
-          Photos avec exactement les mêmes octets, détectées automatiquement.
-          Choisis quelles copies garder — les autres seront supprimées
-          définitivement.
+    <div style={{ paddingBottom: 100 }}>
+      <TopBar
+        title="Doublons"
+        sub={
+          groups
+            ? `${groups.length} groupe${groups.length > 1 ? 's' : ''} · ${totalExtras} copie${totalExtras > 1 ? 's' : ''} en trop`
+            : ''
+        }
+        left={<IconButton icon="back" label="Retour" to="/all" />}
+      />
+
+      <div style={{ padding: '8px 18px 0' }}>
+        <p
+          style={{
+            margin: '4px 0 16px',
+            fontSize: 13,
+            color: 'var(--muted)',
+            lineHeight: '19px',
+          }}
+        >
+          Photos avec exactement les mêmes octets, détectées automatiquement. Choisis
+          quelles copies garder — les autres seront supprimées définitivement.
         </p>
+
+        {error && (
+          <div
+            role="alert"
+            style={{
+              marginBottom: 12,
+              padding: '10px 12px',
+              borderRadius: 12,
+              background: 'var(--danger-50)',
+              color: 'var(--danger-700)',
+              fontSize: 13,
+              fontWeight: 500,
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {!groups ? (
+          <p style={{ fontSize: 14, color: 'var(--muted)' }}>Recherche des doublons…</p>
+        ) : groups.length === 0 ? (
+          <EmptyState onSeeAll={() => nav('/all')} />
+        ) : (
+          <>
+            <div
+              style={{
+                display: 'flex',
+                background: 'var(--surface)',
+                border: '1px solid var(--hairline)',
+                borderRadius: 14,
+                padding: '12px 0',
+                marginBottom: 16,
+              }}
+            >
+              <Counter value={groups.length} label="Groupes" />
+              <span style={{ width: 1, background: 'var(--hairline-2)' }} />
+              <Counter value={totalExtras} label="À supprimer" tone="warning" />
+              <span style={{ width: 1, background: 'var(--hairline-2)' }} />
+              <Counter value="—" label="Espace libéré" sub={`≈ ${Math.max(1, totalExtras)} fichier${totalExtras > 1 ? 's' : ''}`} />
+            </div>
+
+            <div style={{ display: 'grid', gap: 12 }}>
+              {groups.map(group => (
+                <GroupCard
+                  key={group.contentHash}
+                  group={group}
+                  marked={marked.get(group.contentHash) ?? new Set()}
+                  onToggle={id => toggleMark(group.contentHash, id)}
+                  onSelectAllButFirst={() => markAllButFirst(group)}
+                  onClearMarks={() => clearMarks(group.contentHash)}
+                  onDeleteMarked={() => void deleteMarked(group)}
+                  onQuickKeepFirst={() => void quickKeepFirst(group)}
+                  onPhotoOpen={id => nav(`/photo/${id}`)}
+                  working={
+                    working && working.groupHash === group.contentHash ? working : null
+                  }
+                />
+              ))}
+            </div>
+          </>
+        )}
       </div>
+    </div>
+  )
+}
 
-      {error && (
-        <p className="mb-3 rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-200">
-          {error}
-        </p>
-      )}
-
-      {!groups ? (
-        <p className="text-sm text-slate-400">Recherche des doublons…</p>
-      ) : groups.length === 0 ? (
-        <EmptyState />
-      ) : (
-        <>
-          <div className="mb-3 flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-sm">
-            <span className="text-slate-200">
-              <strong className="text-amber-300">{groups.length}</strong>{' '}
-              groupe{groups.length > 1 ? 's' : ''} ·{' '}
-              <strong className="text-amber-300">{totalExtras}</strong>{' '}
-              copie{totalExtras > 1 ? 's' : ''} en trop
-            </span>
-          </div>
-
-          <div className="grid gap-3">
-            {groups.map(group => (
-              <GroupCard
-                key={group.contentHash}
-                group={group}
-                marked={marked.get(group.contentHash) ?? new Set()}
-                onToggle={id => toggleMark(group.contentHash, id)}
-                onSelectAllButFirst={() => markAllButFirst(group)}
-                onClearMarks={() => clearMarks(group.contentHash)}
-                onDeleteMarked={() => void deleteMarked(group)}
-                onQuickKeepFirst={() => void quickKeepFirst(group)}
-                onPhotoOpen={id => nav(`/photo/${id}`)}
-                working={
-                  working && working.groupHash === group.contentHash
-                    ? working
-                    : null
-                }
-              />
-            ))}
-          </div>
-        </>
+function Counter({
+  value,
+  label,
+  sub,
+  tone,
+}: {
+  value: React.ReactNode
+  label: string
+  sub?: React.ReactNode
+  tone?: 'warning'
+}) {
+  return (
+    <div style={{ flex: 1, padding: '0 12px', textAlign: 'center', minWidth: 0 }}>
+      <div
+        style={{
+          fontSize: 22,
+          fontWeight: 600,
+          letterSpacing: '-0.02em',
+          color: tone === 'warning' ? 'var(--warning-700)' : 'var(--ink)',
+        }}
+      >
+        {value}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, fontWeight: 550 }}>{label}</div>
+      {sub && (
+        <div style={{ fontSize: 10, color: 'var(--muted-2)', fontFamily: 'var(--mono)', marginTop: 1 }}>
+          {sub}
+        </div>
       )}
     </div>
   )
 }
 
-function EmptyState() {
+function EmptyState({ onSeeAll }: { onSeeAll: () => void }) {
   return (
-    <div className="mt-6 rounded-xl border border-dashed border-slate-700 bg-slate-900/50 px-4 py-8 text-center">
-      <p className="text-3xl">✨</p>
-      <p className="mt-2 text-sm font-medium text-slate-200">
+    <div
+      style={{
+        padding: 24,
+        background: 'var(--surface)',
+        border: '1px dashed var(--hairline)',
+        borderRadius: 16,
+        textAlign: 'center',
+      }}
+    >
+      <IconTile icon="sparkle" tone="success" size={40} />
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', marginTop: 10 }}>
         Aucun doublon détecté
+      </div>
+      <p style={{ margin: '4px 0 14px', fontSize: 12, color: 'var(--muted)' }}>
+        Toutes tes photos sont uniques. Importes-en de nouvelles depuis l'onglet Ajouter.
       </p>
-      <p className="mt-1 text-xs text-slate-400">
-        Toutes tes photos sont uniques. Importes-en de nouvelles depuis l'onglet
-        Ajouter.
-      </p>
-      <Link
-        to="/all"
-        className="mt-4 inline-block rounded-md bg-slate-800 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-700"
-      >
+      <Button variant="tonal" size="sm" onClick={onSeeAll}>
         Voir toutes mes photos
-      </Link>
+      </Button>
     </div>
   )
 }
@@ -284,30 +318,70 @@ function GroupCard({
   const markedCount = marked.size
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60">
-      {/* Group header */}
-      <header className="flex items-center justify-between gap-3 border-b border-slate-800 px-3 py-2">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-slate-100">
+    <section
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--hairline)',
+        borderRadius: 16,
+        overflow: 'hidden',
+      }}
+    >
+      {/* Header */}
+      <header
+        style={{
+          padding: '12px 14px',
+          borderBottom: '1px solid var(--hairline-2)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              color: 'var(--ink)',
+              letterSpacing: '-0.005em',
+            }}
+          >
             {group.photos.length} copies identiques
-          </p>
-          <p className="truncate text-[11px] text-slate-500">
-            Plus ancienne : {fmtDate(oldest.taken_at)} ·{' '}
+          </div>
+          <div
+            style={{
+              fontSize: 11,
+              color: 'var(--muted)',
+              marginTop: 2,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            Plus ancienne ·{' '}
+            <span style={{ fontFamily: 'var(--mono)' }}>{fmtDate(oldest.taken_at)}</span> ·{' '}
             {zoneLabel(oldest.body_zone)}
-          </p>
+          </div>
         </div>
-        <button
+        <Button
+          variant="success"
+          size="sm"
+          icon="check"
           onClick={onQuickKeepFirst}
-          disabled={disabled}
-          className="shrink-0 rounded-md bg-emerald-600/90 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-          title="Garder la copie la plus ancienne et supprimer les autres"
+          disabled={disabled || extras === 0}
         >
-          ✓ Garder la 1ʳᵉ
-        </button>
+          Garder la 1ʳᵉ
+        </Button>
       </header>
 
       {/* Photo strip */}
-      <div className="grid grid-cols-3 gap-2 p-2 sm:grid-cols-4">
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: 8,
+          padding: 10,
+        }}
+      >
         {group.photos.map((photo, index) => (
           <DupTile
             key={photo.id}
@@ -321,57 +395,89 @@ function GroupCard({
         ))}
       </div>
 
-      {/* Action bar */}
-      <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 bg-slate-900/40 px-3 py-2 text-xs">
-        <div className="flex items-center gap-2 text-slate-400">
-          {working ? (
-            <span className="text-rose-300">
-              Suppression… {working.done}/{working.total}
-            </span>
-          ) : markedCount > 0 ? (
-            <>
-              <span>
-                {markedCount}/{group.photos.length} à supprimer
-              </span>
-              <button
-                onClick={onClearMarks}
-                disabled={disabled}
-                className="rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-              >
-                Annuler
-              </button>
-            </>
-          ) : (
+      {/* Footer */}
+      <footer
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          padding: '10px 14px',
+          background: 'var(--surface-2)',
+          borderTop: '1px solid var(--hairline-2)',
+          fontSize: 12,
+          color: 'var(--muted)',
+        }}
+      >
+        {working ? (
+          <span style={{ color: 'var(--danger-700)' }}>
+            Suppression… {working.done}/{working.total}
+          </span>
+        ) : markedCount > 0 ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{markedCount}</span>/
+            {group.photos.length} à supprimer
             <button
-              onClick={onSelectAllButFirst}
-              disabled={disabled || extras === 0}
-              className="rounded px-1.5 py-0.5 text-slate-300 hover:bg-slate-800"
+              onClick={onClearMarks}
+              disabled={disabled}
+              className="focus-ring"
+              style={{
+                background: 'transparent',
+                border: 0,
+                color: 'var(--muted-2)',
+                fontSize: 12,
+                fontWeight: 550,
+                padding: '2px 4px',
+              }}
             >
-              Sélectionner toutes sauf la 1ʳᵉ
+              Annuler
             </button>
-          )}
-        </div>
+          </span>
+        ) : (
+          <button
+            onClick={onSelectAllButFirst}
+            disabled={disabled || extras === 0}
+            className="focus-ring"
+            style={{
+              background: 'transparent',
+              border: 0,
+              color: 'var(--ink-2)',
+              fontSize: 12,
+              fontWeight: 550,
+              padding: '2px 4px',
+            }}
+          >
+            Sélectionner toutes sauf la 1ʳᵉ
+          </button>
+        )}
         <button
           onClick={onDeleteMarked}
           disabled={disabled || markedCount === 0}
-          className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-500 disabled:bg-slate-800 disabled:text-slate-500"
+          className="focus-ring"
+          style={{
+            padding: '7px 14px',
+            borderRadius: 10,
+            background: disabled || markedCount === 0 ? 'var(--surface-3)' : 'var(--danger)',
+            color: disabled || markedCount === 0 ? 'var(--muted-2)' : '#fff',
+            fontSize: 13,
+            fontWeight: 600,
+            border: disabled || markedCount === 0 ? '1px solid var(--hairline)' : 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
         >
-          {markedCount > 0
-            ? `Supprimer (${markedCount})`
-            : 'Supprimer'}
+          <Icon
+            name="trash"
+            size={14}
+            stroke={disabled || markedCount === 0 ? 'var(--muted-2)' : '#fff'}
+          />
+          Supprimer{markedCount > 0 ? ` (${markedCount})` : ''}
         </button>
       </footer>
     </section>
   )
-}
-
-type DupTileProps = {
-  photo: PhotoRow
-  isOldest: boolean
-  isMarked: boolean
-  disabled: boolean
-  onToggle: () => void
-  onOpen: () => void
 }
 
 function DupTile({
@@ -381,44 +487,107 @@ function DupTile({
   disabled,
   onToggle,
   onOpen,
-}: DupTileProps) {
+}: {
+  photo: PhotoRow
+  isOldest: boolean
+  isMarked: boolean
+  disabled: boolean
+  onToggle: () => void
+  onOpen: () => void
+}) {
   return (
-    <div className="group relative">
+    <div style={{ position: 'relative' }}>
       <button
         type="button"
         onClick={onToggle}
         disabled={disabled}
-        className={`relative block w-full aspect-square overflow-hidden rounded-lg border-2 transition ${
-          isMarked
-            ? 'border-rose-500 ring-2 ring-rose-500/30'
+        className="focus-ring"
+        style={{
+          position: 'relative',
+          display: 'block',
+          width: '100%',
+          aspectRatio: '1 / 1',
+          borderRadius: 10,
+          overflow: 'hidden',
+          padding: 0,
+          background: 'var(--surface-3)',
+          border: isMarked
+            ? '2px solid var(--danger)'
             : isOldest
-              ? 'border-emerald-500/70'
-              : 'border-slate-700'
-        }`}
+              ? '2px solid var(--success)'
+              : '1px solid var(--hairline)',
+          boxShadow: isMarked
+            ? '0 0 0 3px var(--danger-50)'
+            : isOldest
+              ? '0 0 0 3px var(--success-50)'
+              : 'none',
+        }}
       >
         <PhotoThumb
           photo={photo}
-          className={`h-full w-full object-cover transition ${
-            isMarked ? 'opacity-40 grayscale' : ''
-          }`}
+          className="h-full w-full object-cover"
         />
         {isOldest && !isMarked && (
-          <span className="absolute left-1 top-1 rounded-full bg-emerald-600/95 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+          <span
+            style={{
+              position: 'absolute',
+              left: 6,
+              top: 6,
+              padding: '2px 6px',
+              borderRadius: 999,
+              background: 'var(--success)',
+              color: '#fff',
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+            }}
+          >
             Originale
           </span>
         )}
         {isMarked && (
-          <span className="absolute inset-0 flex items-center justify-center bg-rose-950/60 text-2xl text-rose-300">
-            🗑️
+          <span
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(196,74,74,0.18)',
+            }}
+          >
+            <span
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 999,
+                background: 'var(--danger)',
+                color: '#fff',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Icon name="trash" size={14} stroke="#fff" />
+            </span>
           </span>
         )}
-        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/80 to-transparent px-1.5 py-1 text-[10px] text-white">
-          <span>{fmtDate(photo.taken_at)}</span>
-          <span className="opacity-70">{fmtTime(photo.created_at)}</span>
-        </div>
       </button>
-      {/* Secondary "open" affordance — tap-and-hold pattern would be more
-          discoverable, but a tiny eye icon is the cheapest unambiguous option. */}
+      <div
+        style={{
+          marginTop: 4,
+          fontFamily: 'var(--mono)',
+          fontSize: 10,
+          color: 'var(--muted)',
+          textAlign: 'center',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {fmtDate(photo.taken_at)} · {fmtTime(photo.created_at)}
+      </div>
       <button
         type="button"
         onClick={e => {
@@ -426,10 +595,25 @@ function DupTile({
           onOpen()
         }}
         disabled={disabled}
-        className="absolute right-1 top-1 rounded-full bg-slate-900/80 p-1 text-[11px] text-slate-200 opacity-0 transition group-hover:opacity-100"
-        title="Ouvrir cette photo"
+        aria-label="Ouvrir la photo"
+        className="focus-ring"
+        style={{
+          position: 'absolute',
+          right: 6,
+          top: 6,
+          width: 22,
+          height: 22,
+          borderRadius: 999,
+          background: 'rgba(255,255,255,0.9)',
+          color: 'var(--ink-2)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '1px solid var(--hairline)',
+          padding: 0,
+        }}
       >
-        👁
+        <Icon name="zoom" size={12} stroke="var(--ink-2)" />
       </button>
     </div>
   )

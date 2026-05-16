@@ -105,22 +105,88 @@ export default function App() {
 
   if (state.kind === 'backend-down') {
     return (
-      <div className="flex min-h-full items-center justify-center px-6">
-        <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900/60 p-6 text-center">
-          <p className="text-3xl">⚠️</p>
-          <h1 className="mt-2 text-base font-semibold text-slate-100">
+      <div
+        style={{
+          display: 'flex',
+          minHeight: '100%',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '24px',
+          background: 'var(--bg)',
+        }}
+      >
+        <div
+          style={{
+            width: '100%',
+            maxWidth: 360,
+            background: 'var(--surface)',
+            border: '1px solid var(--hairline)',
+            borderRadius: 16,
+            padding: 24,
+            textAlign: 'center',
+            boxShadow: 'var(--e2)',
+          }}
+        >
+          <div
+            aria-hidden="true"
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: 14,
+              background: 'var(--warning-50)',
+              color: 'var(--warning-700)',
+              margin: '0 auto 12px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <path d="M12 3 22 20H2L12 3Z" fill="currentColor" />
+              <path d="M12 10v5M12 17.5v.1" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 18,
+              fontWeight: 600,
+              color: 'var(--ink)',
+              letterSpacing: '-0.01em',
+            }}
+          >
             Serveur injoignable
           </h1>
-          <p className="mt-2 text-sm text-slate-400">
-            Le backend (Supabase) ne répond pas. Si le projet a été mis en
-            pause par inactivité, attends une minute et réessaie.
+          <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--muted)', lineHeight: '19px' }}>
+            Le backend (Supabase) ne répond pas. Si le projet a été mis en pause
+            par inactivité, attends une minute et réessaie.
           </p>
-          <p className="mt-3 break-words text-[11px] text-slate-500">
+          <p
+            style={{
+              margin: '12px 0 0',
+              fontSize: 11,
+              color: 'var(--muted-2)',
+              fontFamily: 'var(--mono)',
+              wordBreak: 'break-word',
+            }}
+          >
             {state.detail}
           </p>
           <button
             onClick={() => window.location.reload()}
-            className="mt-5 w-full rounded-xl bg-indigo-500 px-4 py-3 font-medium text-white active:bg-indigo-600"
+            className="focus-ring"
+            style={{
+              marginTop: 20,
+              width: '100%',
+              padding: '13px 18px',
+              borderRadius: 12,
+              background: 'var(--primary)',
+              color: '#fff',
+              fontSize: 15,
+              fontWeight: 600,
+              border: 0,
+              boxShadow: '0 8px 20px -8px rgba(0, 102, 224, 0.5)',
+            }}
           >
             Réessayer
           </button>
@@ -204,6 +270,18 @@ export default function App() {
 
 function FullCenter({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-full items-center justify-center text-slate-300">{children}</div>
+    <div
+      style={{
+        display: 'flex',
+        minHeight: '100%',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'var(--muted)',
+        fontSize: 14,
+        background: 'var(--bg)',
+      }}
+    >
+      {children}
+    </div>
   )
 }
